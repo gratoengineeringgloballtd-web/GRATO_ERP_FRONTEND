@@ -786,7 +786,7 @@ const CashRequestForm = () => {
             )}
           </Card>
 
-        <Form.Item
+        {/* <Form.Item
           name="purpose"
           label="Purpose of Request"
           valuePropName="value"
@@ -811,6 +811,32 @@ const CashRequestForm = () => {
                 ]
               }}
               placeholder="Describe the purpose of this cash request - items will stay on separate lines"
+              style={{ minHeight: '150px' }}
+            />
+          </div>
+        </Form.Item> */}
+
+        <Form.Item
+          name="purpose"
+          label="Purpose of Request"
+        >
+          <div style={{ 
+            border: '1px solid #d9d9d9', 
+            borderRadius: '6px',
+            overflow: 'hidden'
+          }}>
+            <ReactQuill
+              theme="snow"
+              value={form.getFieldValue('purpose') || ''}
+              onChange={(value) => form.setFieldValue('purpose', value)}
+              modules={{
+                toolbar: [
+                  ['bold', 'italic', 'underline'],
+                  [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                  ['clean']
+                ]
+              }}
+              placeholder="Describe the purpose of this cash request"
               style={{ minHeight: '150px' }}
             />
           </div>

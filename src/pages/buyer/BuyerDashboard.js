@@ -11,7 +11,7 @@ import {
   DollarOutlined, CalendarOutlined, FileTextOutlined, CheckCircleOutlined,
   ClockCircleOutlined, MailOutlined, SettingOutlined, TruckOutlined,
   FilterOutlined, ExportOutlined, GlobalOutlined,
-  CopyOutlined, DownloadOutlined, ExclamationCircleOutlined
+  CopyOutlined, DownloadOutlined, ExclamationCircleOutlined,  CloseCircleOutlined
 } from '@ant-design/icons';
 import moment from 'moment';
 import { buyerRequisitionAPI } from '../../services/buyerRequisitionAPI';
@@ -38,6 +38,10 @@ const BuyerRequisitionPortal = () => {
   const [sourcingForm]   = Form.useForm();
   const [activeTab,      setActiveTab]      = useState('pending');
   const [currentStep,    setCurrentStep]    = useState(0);
+  const [acknowledgmentModalVisible, setAcknowledgmentModalVisible] = useState(false);
+  const [selectedDisbursement, setSelectedDisbursement]             = useState(null);
+  const [acknowledgingDisbursement, setAcknowledgingDisbursement]   = useState(false);
+  const [acknowledgmentForm] = Form.useForm();
 
   // ── fetch helpers ────────────────────────────────────────────────────────
 
@@ -263,6 +267,40 @@ const BuyerRequisitionPortal = () => {
 
   const handleSubmitSourcing = async () => {
     if (await validateSourcingForm()) setSupplierSelectionVisible(true);
+  };
+
+  const handleAcknowledgeDisbursement = async (values) => {
+    if (!selectedRequisition || !selectedDisbursement) return;
+    try {
+      setAcknowledgingDisbursement(true);
+      const response = await fetch(
+        `/api/purchase-requisitions/${selectedRequisition.id}/disbursements/${selectedDisbursement._id}/acknowledge`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify(values)
+        }
+      );
+      const data = await response.json();
+      if (data.success) {
+        message.success('Disbursement receipt acknowledged successfully!');
+        setAcknowledgmentModalVisible(false);
+        setSelectedDisbursement(null);
+        acknowledgmentForm.resetFields();
+        // Refresh the drawer with updated data
+        await handleViewDetails({ id: selectedRequisition.id });
+        await Promise.all([loadRequisitions(), loadAllRequisitionsForStats()]);
+      } else {
+        message.error(data.message || 'Failed to acknowledge disbursement');
+      }
+    } catch (err) {
+      message.error(err.message || 'Failed to acknowledge disbursement');
+    } finally {
+      setAcknowledgingDisbursement(false);
+    }
   };
 
   // ── table columns ────────────────────────────────────────────────────────
@@ -572,6 +610,104 @@ const BuyerRequisitionPortal = () => {
               </Button>
             </Card>
 
+            {/* Disbursement History — buyer acknowledges receipt */}
+            {selectedRequisition &&
+              ['partially_disbursed', 'fully_disbursed', 'justified'].includes(
+                selectedRequisition.sourcingStatus
+              ) && (
+              <Card
+                size="small"
+                title={
+                  <Space>
+                    <DollarOutlined />
+                    Disbursement History
+                  </Space>
+                }
+                style={{ marginTop: 16 }}
+              >
+                {(!selectedRequisition.disbursements ||
+                  selectedRequisition.disbursements.length === 0) ? (
+                  <Text type="secondary">No disbursements recorded yet.</Text>
+                ) : (
+                  <Timeline>
+                    {selectedRequisition.disbursements.map((disb, index) => (
+                      <Timeline.Item
+                        key={index}
+                        color={disb.acknowledged ? 'green' : 'blue'}
+                        dot={
+                          disb.acknowledged
+                            ? <CheckCircleOutlined />
+                            : <DollarOutlined />
+                        }
+                      >
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          <Space>
+                            <Text strong>Payment #{disb.disbursementNumber}</Text>
+                            {disb.acknowledged ? (
+                              <Tag color="success" icon={<CheckCircleOutlined />}>
+                                Acknowledged
+                              </Tag>
+                            ) : (
+                              <Tag color="warning" icon={<ClockCircleOutlined />}>
+                                Awaiting Acknowledgment
+                              </Tag>
+                            )}
+                          </Space>
+
+                          <Text>
+                            Amount:{' '}
+                            <Text strong style={{ color: '#1890ff' }}>
+                              XAF {disb.amount?.toLocaleString()}
+                            </Text>
+                          </Text>
+
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            Disbursed: {new Date(disb.date).toLocaleString('en-GB')}
+                          </Text>
+
+                          {disb.acknowledged && (
+                            <>
+                              <Text type="success" style={{ fontSize: 12 }}>
+                                ✅ Acknowledged:{' '}
+                                {new Date(disb.acknowledgmentDate).toLocaleString('en-GB')}
+                              </Text>
+                              {disb.acknowledgmentMethod && (
+                                <Text style={{ fontSize: 12 }}>
+                                  Method:{' '}
+                                  {disb.acknowledgmentMethod
+                                    .replace('_', ' ')
+                                    .toUpperCase()}
+                                </Text>
+                              )}
+                            </>
+                          )}
+
+                          {!disb.acknowledged && (
+                            <Button
+                              type="primary"
+                              size="small"
+                              icon={<CheckCircleOutlined />}
+                              onClick={() => {
+                                setSelectedDisbursement(disb);
+                                acknowledgmentForm.setFieldsValue({
+                                  acknowledgmentMethod: 'cash',
+                                  acknowledgmentNotes: ''
+                                });
+                                setAcknowledgmentModalVisible(true);
+                              }}
+                              style={{ backgroundColor: '#52c41a', marginTop: 4 }}
+                            >
+                              Acknowledge Receipt
+                            </Button>
+                          )}
+                        </Space>
+                      </Timeline.Item>
+                    ))}
+                  </Timeline>
+                )}
+              </Card>
+            )}
+
             {selectedRequisition.notes && (
               <Card size="small" title="Notes">
                 <Paragraph>{selectedRequisition.notes}</Paragraph>
@@ -641,6 +777,114 @@ const BuyerRequisitionPortal = () => {
           </Space>
         )}
       </Drawer>
+
+        <Modal
+          title={
+            <Space>
+              <CheckCircleOutlined style={{ color: '#52c41a' }} />
+              Acknowledge Disbursement Receipt
+            </Space>
+          }
+          open={acknowledgmentModalVisible}
+          onCancel={() => {
+            setAcknowledgmentModalVisible(false);
+            setSelectedDisbursement(null);
+            acknowledgmentForm.resetFields();
+          }}
+          footer={null}
+          width={600}
+        >
+          {selectedDisbursement && (
+            <div>
+              <Alert
+                message="Confirm Money Receipt"
+                description={
+                  <div>
+                    <p>You are acknowledging receipt of:</p>
+                    <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                      XAF {selectedDisbursement.amount?.toLocaleString()}
+                    </Text>
+                    <br />
+                    <Text type="secondary">
+                      Payment #{selectedDisbursement.disbursementNumber} • Disbursed on{' '}
+                      {new Date(selectedDisbursement.date).toLocaleDateString('en-GB')}
+                    </Text>
+                  </div>
+                }
+                type="info"
+                showIcon
+                style={{ marginBottom: 20 }}
+              />
+
+              <Alert
+                message="Important"
+                description="By acknowledging, you confirm that you have physically received the money. This action cannot be undone."
+                type="warning"
+                showIcon
+                style={{ marginBottom: 20 }}
+              />
+
+              <Form
+                form={acknowledgmentForm}
+                layout="vertical"
+                onFinish={handleAcknowledgeDisbursement}
+              >
+                <Form.Item
+                  name="acknowledgmentMethod"
+                  label="How did you receive the money?"
+                  rules={[{ required: true, message: 'Please select receipt method' }]}
+                >
+                  <Select placeholder="Select receipt method" size="large">
+                    <Option value="cash">💵 Cash — Received physical cash</Option>
+                    <Option value="bank_transfer">
+                      🏦 Bank Transfer — Money credited to bank account
+                    </Option>
+                    <Option value="mobile_money">
+                      📱 Mobile Money — Received via mobile money
+                    </Option>
+                  </Select>
+                </Form.Item>
+
+                <Form.Item
+                  name="acknowledgmentNotes"
+                  label="Additional Notes (Optional)"
+                  help="Any comments about receiving the money"
+                >
+                  <Input.TextArea
+                    rows={3}
+                    placeholder="E.g., Received in full. Transaction ref: TXN123456..."
+                    showCount
+                    maxLength={200}
+                  />
+                </Form.Item>
+
+                <Form.Item style={{ marginBottom: 0 }}>
+                  <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                    <Button
+                      onClick={() => {
+                        setAcknowledgmentModalVisible(false);
+                        setSelectedDisbursement(null);
+                        acknowledgmentForm.resetFields();
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      loading={acknowledgingDisbursement}
+                      icon={<CheckCircleOutlined />}
+                      size="large"
+                      style={{ backgroundColor: '#52c41a' }}
+                    >
+                      ✅ Confirm I Received the Money
+                    </Button>
+                  </Space>
+                </Form.Item>
+              </Form>
+            </div>
+          )}
+        </Modal>
 
       {/* ── Sourcing Drawer ────────────────────────────────────────────────── */}
       <Drawer

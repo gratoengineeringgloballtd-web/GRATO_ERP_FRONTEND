@@ -11,6 +11,17 @@ import {
   RetweetOutlined, SettingOutlined, UploadOutlined, WarningOutlined
 } from '@ant-design/icons';
 import { accountingAPI } from '../../services/api';
+import {
+  CreditNotesTab,
+  DunningTab,
+  FixedAssetsTab,
+  AnalyticTab,
+  BudgetsTab,
+  FiscalYearsTab,
+  ManagementReportTab,
+  CurrenciesTab,
+  TaxGroupsTab,
+} from './AccountingOdooTabs';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -935,7 +946,44 @@ const FinanceAccountingCenter = () => {
                 locale={{ emptyText: 'Click "Load" to fetch audit log' }} />
             </Card>
           )
-        }
+        },
+
+        {
+          key: 'credit-notes', label: 'Credit Notes',
+          children: <CreditNotesTab />
+        },
+        {
+          key: 'dunning', label: 'Collections',
+          children: <DunningTab />
+        },
+        {
+          key: 'fixed-assets', label: 'Fixed Assets',
+          children: <FixedAssetsTab />
+        },
+        {
+          key: 'analytic', label: 'Cost Centres',
+          children: <AnalyticTab />
+        },
+        {
+          key: 'budgets', label: 'Budgets',
+          children: <BudgetsTab />
+        },
+        {
+          key: 'fiscal-years', label: 'Fiscal Years',
+          children: <FiscalYearsTab />
+        },
+        {
+          key: 'management', label: 'Management Report',
+          children: <ManagementReportTab />
+        },
+        {
+          key: 'currencies', label: 'Currencies',
+          children: <CurrenciesTab />
+        },
+        {
+          key: 'tax-groups', label: 'Tax Groups',
+          children: <TaxGroupsTab />
+        },
 
       ]} />
 

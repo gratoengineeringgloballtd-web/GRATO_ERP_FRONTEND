@@ -770,6 +770,158 @@ export const cashRequestAPI = {
 
 };
 
+export const legalAPI = {
+ 
+  // Dashboard
+  getDashboard: async () =>
+    (await api.get('/legal/dashboard')).data,
+ 
+  // Compliance documents
+  getDocuments: async (params = {}) =>
+    (await api.get('/legal/documents', { params })).data,
+  createDocument: async (payload) =>
+    (await api.post('/legal/documents', payload)).data,
+  updateDocument: async (id, payload) =>
+    (await api.put(`/legal/documents/${id}`, payload)).data,
+  reviewDocument: async (id, payload) =>
+    (await api.post(`/legal/documents/${id}/review`, payload)).data,
+  approveDocument: async (id, payload) =>
+    (await api.post(`/legal/documents/${id}/approve`, payload)).data,
+ 
+  // Risk cases
+  getRiskCases: async (params = {}) =>
+    (await api.get('/legal/risk-cases', { params })).data,
+  createRiskCase: async (payload) =>
+    (await api.post('/legal/risk-cases', payload)).data,
+  updateRiskCase: async (id, payload) =>
+    (await api.put(`/legal/risk-cases/${id}`, payload)).data,
+  resolveRiskCase: async (id, payload) =>
+    (await api.post(`/legal/risk-cases/${id}/resolve`, payload)).data,
+ 
+  // Contracts
+  getContracts: async (params = {}) =>
+    (await api.get('/legal/contracts', { params })).data,
+  getContract: async (id) =>
+    (await api.get(`/legal/contracts/${id}`)).data,
+  createContract: async (payload) =>
+    (await api.post('/legal/contracts', payload)).data,
+  updateContract: async (id, payload) =>
+    (await api.put(`/legal/contracts/${id}`, payload)).data,
+  addServiceLevel: async (id, payload) =>
+    (await api.post(`/legal/contracts/${id}/service-levels`, payload)).data,
+  addContractTask: async (id, payload) =>
+    (await api.post(`/legal/contracts/${id}/tasks`, payload)).data,
+  updateContractTask: async (contractId, taskId, payload) =>
+    (await api.patch(`/legal/contracts/${contractId}/tasks/${taskId}`, payload)).data,
+ 
+  // Regulatory standards
+  getRegulatoryStandards: async (params = {}) =>
+    (await api.get('/legal/regulatory', { params })).data,
+  createRegulatoryStandard: async (payload) =>
+    (await api.post('/legal/regulatory', payload)).data,
+  updateRegulatoryStandard: async (id, payload) =>
+    (await api.put(`/legal/regulatory/${id}`, payload)).data,
+  addDisclosure: async (id, payload) =>
+    (await api.post(`/legal/regulatory/${id}/disclosures`, payload)).data,
+ 
+  // Intellectual property
+  getIPRecords: async (params = {}) =>
+    (await api.get('/legal/ip', { params })).data,
+  createIPRecord: async (payload) =>
+    (await api.post('/legal/ip', payload)).data,
+  updateIPRecord: async (id, payload) =>
+    (await api.put(`/legal/ip/${id}`, payload)).data,
+  addLitigation: async (id, payload) =>
+    (await api.post(`/legal/ip/${id}/litigations`, payload)).data,
+  addTrustEntity: async (id, payload) =>
+    (await api.post(`/legal/ip/${id}/trust-entities`, payload)).data,
+ 
+  // SDD
+  getSDDTemplate: async () =>
+    (await api.get('/legal/sdd/template')).data,
+  getSDDRecords: async (params = {}) =>
+    (await api.get('/legal/sdd', { params })).data,
+  getSDDRecord: async (id) =>
+    (await api.get(`/legal/sdd/${id}`)).data,
+  createSDDRecord: async (payload) =>
+    (await api.post('/legal/sdd', payload)).data,
+  saveSDDAnswers: async (id, answers, unmetCriticalPoints) =>
+    (await api.patch(`/legal/sdd/${id}/answers`, { answers, unmetCriticalPoints })).data,
+  submitSDD: async (id, payload) =>
+    (await api.post(`/legal/sdd/${id}/submit`, payload)).data,
+  reviewSDD: async (id, payload) =>
+    (await api.post(`/legal/sdd/${id}/review`, payload)).data,
+  getSupplierProfile: async (supplierId) =>
+    (await api.get(`/legal/sdd/supplier/${supplierId}/profile`)).data,
+
+  // Document versioning
+  getDocumentVersions:     async (docId)       => (await api.get(`/legal/documents/${docId}/versions`)).data,
+  createDocumentVersion:   async (docId, d)    => (await api.post(`/legal/documents/${docId}/versions`, d)).data,
+ 
+  // Risk matrix
+  getRiskMatrix:           async (p={})        => (await api.get('/legal/risk-matrix', {params:p})).data,
+  createRiskEntry:         async (d)           => (await api.post('/legal/risk-matrix', d)).data,
+  updateRiskEntry:         async (id,d)        => (await api.put(`/legal/risk-matrix/${id}`, d)).data,
+ 
+  // Audits
+  getAudits:               async (p={})        => (await api.get('/legal/audits', {params:p})).data,
+  getAudit:                async (id)          => (await api.get(`/legal/audits/${id}`)).data,
+  createAudit:             async (d)           => (await api.post('/legal/audits', d)).data,
+  updateAudit:             async (id,d)        => (await api.put(`/legal/audits/${id}`, d)).data,
+  addFinding:              async (id,d)        => (await api.post(`/legal/audits/${id}/findings`, d)).data,
+  updateCAPA:              async (id,fid,d)    => (await api.patch(`/legal/audits/${id}/findings/${fid}/capa`, d)).data,
+ 
+  // Incidents
+  getIncidents:            async (p={})        => (await api.get('/legal/incidents', {params:p})).data,
+  createIncident:          async (d)           => (await api.post('/legal/incidents', d)).data,
+  updateIncident:          async (id,d)        => (await api.put(`/legal/incidents/${id}`, d)).data,
+  addCorrectiveAction:     async (id,d)        => (await api.post(`/legal/incidents/${id}/corrective-actions`, d)).data,
+  closeIncident:           async (id,d)        => (await api.post(`/legal/incidents/${id}/close`, d)).data,
+ 
+  // Policies
+  getPolicies:             async (p={})        => (await api.get('/legal/policies', {params:p})).data,
+  createPolicy:            async (d)           => (await api.post('/legal/policies', d)).data,
+  updatePolicy:            async (id,d)        => (await api.put(`/legal/policies/${id}`, d)).data,
+  publishPolicyVersion:    async (id,d)        => (await api.post(`/legal/policies/${id}/versions`, d)).data,
+  acknowledgePolicy:       async (id,d)        => (await api.post(`/legal/policies/${id}/acknowledge`, d)).data,
+ 
+  // Whistleblowing
+  submitWhistleblowReport: async (d)           => (await api.post('/legal/whistleblowing/report', d)).data,
+  checkWBStatus:           async (token)       => (await api.get(`/legal/whistleblowing/status/${token}`)).data,
+  getWBCases:              async (p={})        => (await api.get('/legal/whistleblowing', {params:p})).data,
+  getWBCase:               async (id)          => (await api.get(`/legal/whistleblowing/${id}`)).data,
+  updateWBCase:            async (id,d)        => (await api.put(`/legal/whistleblowing/${id}`, d)).data,
+  addWBLog:                async (id,d)        => (await api.post(`/legal/whistleblowing/${id}/log`, d)).data,
+  sendReporterUpdate:      async (id,d)        => (await api.post(`/legal/whistleblowing/${id}/reporter-update`, d)).data,
+ 
+  // Data privacy
+  getPrivacyRecord:        async ()            => (await api.get('/legal/privacy')).data,
+  addProcessingActivity:   async (d)           => (await api.post('/legal/privacy/processing', d)).data,
+  addDPIA:                 async (d)           => (await api.post('/legal/privacy/dpias', d)).data,
+  addDataBreach:           async (d)           => (await api.post('/legal/privacy/breaches', d)).data,
+  addSAR:                  async (d)           => (await api.post('/legal/privacy/sars', d)).data,
+ 
+  // Training
+  getTrainingRecords:      async (p={})        => (await api.get('/legal/training', {params:p})).data,
+  createTrainingRecord:    async (d)           => (await api.post('/legal/training', d)).data,
+  updateTrainingRecord:    async (id,d)        => (await api.put(`/legal/training/${id}`, d)).data,
+  addTrainingSession:      async (id,d)        => (await api.post(`/legal/training/${id}/sessions`, d)).data,
+  addCertification:        async (id,d)        => (await api.post(`/legal/training/${id}/certifications`, d)).data,
+  updateCompetency:        async (id,d)        => (await api.post(`/legal/training/${id}/competencies`, d)).data,
+  getGapAnalysis:          async (p={})        => (await api.get('/legal/training/gap-analysis', {params:p})).data,
+ 
+  // Supplier monitoring
+  getSupplierMonitoring:   async (p={})        => (await api.get('/legal/supplier-monitoring', {params:p})).data,
+  createSupplierMonitor:   async (d)           => (await api.post('/legal/supplier-monitoring', d)).data,
+  updateSupplierMonitor:   async (id,d)        => (await api.put(`/legal/supplier-monitoring/${id}`, d)).data,
+  runSanctionsCheck:       async (id,d)        => (await api.post(`/legal/supplier-monitoring/${id}/sanctions-check`, d)).data,
+  addReassessmentTrigger:  async (id,d)        => (await api.post(`/legal/supplier-monitoring/${id}/reassessment`, d)).data,
+ 
+  // Compliance summary report
+  getComplianceSummary:    async ()            => (await api.get('/legal/reports/compliance-summary')).data,
+};
+ 
+
 export const accountingAPI = {
   bootstrapDefaultChart: async () => {
     const response = await api.post('/accounting/bootstrap/default-chart');
@@ -953,6 +1105,65 @@ export const accountingAPI = {
     const query = new URLSearchParams(params).toString();
     window.open(`${api.defaults.baseURL}/accounting/exports/${endpoint}${query ? '?' + query : ''}`, '_blank');
   },
+
+    // Tax groups
+  getTaxGroups:          async (p={}) => (await api.get('/accounting/tax-groups', {params:p})).data,
+  createTaxGroup:        async (d)    => (await api.post('/accounting/tax-groups', d)).data,
+  updateTaxGroup:        async (id,d) => (await api.put(`/accounting/tax-groups/${id}`, d)).data,
+ 
+  // Currencies
+  getCurrencies:         async ()     => (await api.get('/accounting/currencies')).data,
+  upsertCurrency:        async (d)    => (await api.post('/accounting/currencies', d)).data,
+  postFXGainLoss:        async (d)    => (await api.post('/accounting/currencies/fx-gain-loss', d)).data,
+ 
+  // Credit notes
+  getCreditNotes:        async (p={}) => (await api.get('/accounting/credit-notes', {params:p})).data,
+  createCreditNote:      async (d)    => (await api.post('/accounting/credit-notes', d)).data,
+  postCustomerCreditNote:async (id)   => (await api.post(`/accounting/credit-notes/${id}/post-customer`)).data,
+  postSupplierCreditNote:async (id)   => (await api.post(`/accounting/credit-notes/${id}/post-supplier`)).data,
+ 
+  // Dunning
+  getDunningActions:     async (p={}) => (await api.get('/accounting/dunning', {params:p})).data,
+  runDunningCheck:       async ()     => (await api.post('/accounting/dunning/run')).data,
+  sendDunningAction:     async (id)   => (await api.post(`/accounting/dunning/${id}/send`)).data,
+ 
+  // Payment batches
+  getPaymentBatches:     async (p={}) => (await api.get('/accounting/payment-batches', {params:p})).data,
+  createPaymentBatch:    async (d)    => (await api.post('/accounting/payment-batches', d)).data,
+  validatePaymentBatch:  async (id)   => (await api.post(`/accounting/payment-batches/${id}/validate`)).data,
+ 
+  // Fixed assets
+  getFixedAssets:        async (p={}) => (await api.get('/accounting/fixed-assets', {params:p})).data,
+  getFixedAssetRegister: async ()     => (await api.get('/accounting/fixed-assets/register')).data,
+  createFixedAsset:      async (d)    => (await api.post('/accounting/fixed-assets', d)).data,
+  depreciateAsset:       async (id)   => (await api.post(`/accounting/fixed-assets/${id}/depreciate`)).data,
+  depreciateAll:         async ()     => (await api.post('/accounting/fixed-assets/depreciate-all')).data,
+ 
+  // Analytic accounting
+  getAnalyticAccounts:   async (p={}) => (await api.get('/accounting/analytic/accounts', {params:p})).data,
+  createAnalyticAccount: async (d)    => (await api.post('/accounting/analytic/accounts', d)).data,
+  getAnalyticReport:     async (id,p) => (await api.get(`/accounting/analytic/accounts/${id}/report`, {params:p})).data,
+ 
+  // Budgets
+  getBudgets:            async (p={}) => (await api.get('/accounting/budgets', {params:p})).data,
+  createBudget:          async (d)    => (await api.post('/accounting/budgets', d)).data,
+  getBudgetVsActual:     async (id)   => (await api.get(`/accounting/budgets/${id}/vs-actual`)).data,
+ 
+  // Fiscal years
+  getFiscalYears:        async ()     => (await api.get('/accounting/fiscal-years')).data,
+  createFiscalYear:      async (d)    => (await api.post('/accounting/fiscal-years', d)).data,
+  lockFiscalYear:        async (yr)   => (await api.post(`/accounting/fiscal-years/${yr}/lock`)).data,
+  closeFiscalYear:       async (yr)   => (await api.post(`/accounting/fiscal-years/${yr}/close`)).data,
+ 
+  // Comparative reports
+  getComparativePL:      async (periods) => (await api.post('/accounting/reports/comparative-pl', {periods})).data,
+  getComparativeBS:      async (dates)   => (await api.post('/accounting/reports/comparative-balance-sheet', {dates})).data,
+ 
+  // Management report
+  getManagementReport:   async (p={}) => (await api.get('/accounting/reports/management', {params:p})).data,
+ 
+  // Cash rounding
+  applyCashRounding:     async (d)    => (await api.post('/accounting/cash-rounding/apply', d)).data,
  
 };
 

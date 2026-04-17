@@ -8288,8 +8288,42 @@ const Dashboard = () => {
             { label: 'Reports & Analytics', path: '/hr/reports', icon: <BarChartOutlined /> }
           ]
         }
-      }] : [])
-
+      }] : []),
+      // ── 23. LEGAL & COMPLIANCE ────────────────────────────────────────────
+      ...(['legal', 'admin', 'finance'].includes(user?.role) ? [{
+        key: 'legal-compliance',
+        title: 'Legal & Compliance',
+        description: 'Supplier due diligence, contract compliance, regulatory tracking, and legal risk management',
+        icon: <SafetyCertificateOutlined style={{ fontSize: '48px', color: '#52c41a' }} />,
+        color: '#f6ffed',
+        borderColor: '#52c41a',
+        stats: { pending: 0, total: 0 },
+        managementRoles: ['legal', 'admin', 'finance'],
+        actions: {
+          legal: [
+            { label: 'Legal Dashboard',        path: '/legal/dashboard',          icon: <DashboardOutlined />, primary: true },
+            { label: 'Due Diligence (SDD)',     path: '/legal/sdd',                icon: <AuditOutlined />,     badge: true },
+            { label: 'Contract Compliance',    path: '/legal/contracts',          icon: <FileTextOutlined />,  badge: true },
+            { label: 'Regulatory Tracker',     path: '/legal/regulatory',         icon: <SafetyCertificateOutlined /> },
+            { label: 'Risk Register',          path: '/legal/risks',              icon: <WarningOutlined /> },
+            { label: 'Legal Analytics',        path: '/legal/analytics',          icon: <BarChartOutlined /> }
+          ],
+          finance: [
+            { label: 'Legal Overview',         path: '/legal/dashboard',          icon: <DashboardOutlined />, primary: true },
+            { label: 'SDD Records',            path: '/legal/sdd',                icon: <AuditOutlined /> },
+            { label: 'Contract Compliance',    path: '/legal/contracts',          icon: <FileTextOutlined /> }
+          ],
+          admin: [
+            { label: 'Admin Legal Dashboard',  path: '/legal/dashboard',          icon: <SettingOutlined />,   primary: true },
+            { label: 'Due Diligence (SDD)',     path: '/legal/sdd',                icon: <AuditOutlined />,     badge: true },
+            { label: 'Contract Compliance',    path: '/legal/contracts',          icon: <FileTextOutlined />,  badge: true },
+            { label: 'Regulatory Tracker',     path: '/legal/regulatory',         icon: <SafetyCertificateOutlined /> },
+            { label: 'Risk Register',          path: '/legal/risks',              icon: <WarningOutlined /> },
+            { label: 'Legal Analytics',        path: '/legal/analytics',          icon: <BarChartOutlined /> },
+            { label: 'User Role Management',   path: '/admin/legal-roles',        icon: <TeamOutlined /> }
+          ]
+        }
+      }] : []),
     ];
 
     // ── RENDER ────────────────────────────────────────────────────────────────
@@ -8509,7 +8543,7 @@ const Dashboard = () => {
 
   const totalPending = getTotalPending();
 
-  const managementModules = ['pettycash', 'purchase-requisitions', 'buyer-procurement', 'supplier-management', 'invoices', 'incident-reports', 'it-support', 'suggestions', 'sick-leave', 'communications', 'inventory-management', 'fixed-assets', 'supplier-performance', 'data-migration', 'project-management', 'action-items']
+  const managementModules = ['pettycash', 'purchase-requisitions', 'buyer-procurement', 'supplier-management', 'invoices', 'incident-reports', 'it-support', 'suggestions', 'sick-leave', 'communications', 'inventory-management', 'fixed-assets', 'supplier-performance', 'data-migration', 'project-management', 'action-items', 'legal-compliance']
     .filter(module => ({
       'pettycash': ['finance', 'hr', 'admin'],
       'purchase-requisitions': ['supply_chain', 'buyer', 'hr', 'it', 'finance', 'admin'],
@@ -8526,7 +8560,8 @@ const Dashboard = () => {
       'supplier-performance': ['supply_chain', 'admin'],
       'data-migration': ['supply_chain', 'admin'],
       'project-management': ['admin', 'supply_chain', 'supervisor', 'manager', 'hr', 'it', 'hse', 'technical', 'finance'],
-      'action-items': ['admin', 'supply_chain', 'supervisor', 'manager', 'hr', 'it', 'hse', 'technical', 'finance']
+      'action-items': ['admin', 'supply_chain', 'supervisor', 'manager', 'hr', 'it', 'hse', 'technical', 'finance'],
+      'legal-compliance': ['legal', 'admin', 'finance'],
     }[module] || []).includes(user?.role));
 
   if (loading) {

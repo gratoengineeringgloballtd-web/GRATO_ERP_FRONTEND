@@ -82,6 +82,7 @@ const EmployeePurchaseRequisitions = ({ onCreateNew }) => {
   const [acknowledgmentModalVisible, setAcknowledgmentModalVisible] = useState(false);
   const [selectedDisbursement, setSelectedDisbursement] = useState(null);
   const [acknowledgmentForm] = Form.useForm();
+  
 
   // ✅ NEW: Resubmit modal states
   const [resubmitModalVisible, setResubmitModalVisible] = useState(false);
@@ -838,6 +839,25 @@ const handleSubmitCancellation = async () => {
                             )}
                           </Descriptions>
 
+                          {/* ✅ Show acknowledge button only if not acknowledged */}
+                          {/* {!disbursement.acknowledged && (
+                            <Button
+                              type="primary"
+                              size="small"
+                              icon={<CheckCircleOutlined />}
+                              onClick={() => {
+                                setSelectedDisbursement(disbursement);
+                                acknowledgmentForm.setFieldsValue({
+                                  acknowledgmentMethod: 'cash',
+                                  acknowledgmentNotes: ''
+                                });
+                                setAcknowledgmentModalVisible(true);
+                              }}
+                              style={{ backgroundColor: '#52c41a' }}
+                            >
+                              Acknowledge Receipt
+                            </Button>
+                          )} */}
                           {/* ✅ Show acknowledge button only if not acknowledged */}
                           {!disbursement.acknowledged && (
                             <Button
