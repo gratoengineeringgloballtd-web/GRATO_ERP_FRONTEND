@@ -3,6 +3,8 @@
 //   Path A — Create PO with an approved/awarded tender (existing flow)
 //   Path B — Create PO without tender via signed-document justification
 // NEW: Tax configuration + Budget Code fields added to both Create and Edit modals
+// FIX: Edit button now visible for all non-terminal statuses (incl. pending_supply_chain_assignment)
+//      budgetCodeId is now pre-filled in the Edit modal
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card, Table, Button, Space, Typography, Tag, Row, Col, Statistic,
@@ -57,6 +59,9 @@ const getStatusTag = (status) => {
 
 const STAGE_LABELS = ['PO Created','Supplier Acknowledgment','Production/Preparation','Shipment','Delivery & Completion'];
 const STAGE_IDX    = { created:0, supplier_acknowledgment:1, in_production:2, in_transit:3, completed:4 };
+
+// Terminal statuses where editing is not allowed
+const NON_EDITABLE_STATUSES = ['delivered', 'completed', 'cancelled'];
 
 // ─────────────────────────────────────────────
 // TenderSelectionBlock — used in Path A
@@ -187,7 +192,6 @@ const BuyerPurchaseOrders = () => {
   const [tenders,         setTenders]         = useState([]);
   const [suppliers,       setSuppliers]       = useState([]);
   const [itemCategories,  setItemCategories]  = useState([]);
-  // ─── NEW: budget codes state ───────────────────────────────────────────────
   const [budgetCodes,     setBudgetCodes]     = useState([]);
 
   // ── UI state ──────────────────────────────────────────────────────────────
@@ -258,7 +262,6 @@ const BuyerPurchaseOrders = () => {
     } catch {}
   }, []);
 
-  // ─── NEW: load budget codes ────────────────────────────────────────────────
   const loadBudgetCodes = useCallback(async () => {
     try {
       const res = await buyerRequisitionAPI.getBudgetCodes();
@@ -272,7 +275,7 @@ const BuyerPurchaseOrders = () => {
       loadApprovedTenders(),
       loadSuppliers(),
       loadItemCategories(),
-      loadBudgetCodes(), // NEW
+      loadBudgetCodes(),
     ]);
   }, []);
 
@@ -322,11 +325,9 @@ const BuyerPurchaseOrders = () => {
     fd.append('totalAmount',     String((values.items||[]).reduce((s,i)=>(Number(i.quantity)||0)*(Number(i.unitPrice)||0)+s, 0)));
     fd.append('currency',        values.currency || 'XAF');
 
-    // ─── NEW: tax fields ──────────────────────────────────────────────────────
     fd.append('taxApplicable',   String(values.taxApplicable || false));
-    fd.append('taxRate',         String(values.taxRate       || 19.25));
+    fd.append('taxRate',         String(values.taxRate ?? 19.25));
 
-    // ─── NEW: budget code ─────────────────────────────────────────────────────
     if (values.budgetCodeId) {
       fd.append('budgetCodeId', values.budgetCodeId);
     }
@@ -397,7 +398,6 @@ const BuyerPurchaseOrders = () => {
       const supplierDetails = resolveSupplierDetails(values);
       if (!supplierDetails) { message.error('Please select a supplier'); return; }
 
-      // ─── NEW: budget code validation ───────────────────────────────────────
       if (values.budgetCodeId) {
         const selectedBudgetCode = budgetCodes.find(bc => bc._id === values.budgetCodeId);
         if (selectedBudgetCode) {
@@ -437,10 +437,9 @@ const BuyerPurchaseOrders = () => {
       if (data.success) {
         message.success('Purchase order created successfully');
 
-        // ─── NEW: refresh budget codes after creation ──────────────────────────
         if (values.budgetCodeId) {
           try {
-            await buyerRequisitionAPI.updateBudgetCodeBalance?.(values.budgetCodeId, 
+            await buyerRequisitionAPI.updateBudgetCodeBalance?.(values.budgetCodeId,
               (values.items||[]).reduce((s,i)=>(Number(i.quantity)||0)*(Number(i.unitPrice)||0)+s,0)
             );
           } catch { /* non-fatal */ }
@@ -482,6 +481,7 @@ const BuyerPurchaseOrders = () => {
     finally { setLoading(false); }
   };
 
+  // FIX: added budgetCodeId to pre-fill
   const handleEditPO = (po) => {
     setSelectedPO(po);
     editForm.setFieldsValue({
@@ -491,16 +491,16 @@ const BuyerPurchaseOrders = () => {
       specialInstructions:  po.specialInstructions || '',
       notes:                po.notes              || '',
       currency:             po.currency           || 'XAF',
-      // ─── NEW: pre-fill tax fields ────────────────────────────────────────────
-      taxApplicable:        po.taxApplicable       || false,
-      taxRate:              po.taxRate             || 19.25,
+      taxApplicable:        po.taxApplicable      || false,
+      taxRate:              po.taxRate            || null,
+      budgetCodeId:         po.budgetCodeId       || undefined, // FIX: pre-fill budget code
       items: (po.items||[]).map(item => ({
-        description:   item.description,
-        quantity:      item.quantity,
-        unitPrice:     item.unitPrice,
-        unitOfMeasure: item.unitOfMeasure || 'Units',
-        category:      item.category     || '',
-        specifications:item.specifications|| '',
+        description:    item.description,
+        quantity:       item.quantity,
+        unitPrice:      item.unitPrice,
+        unitOfMeasure:  item.unitOfMeasure || 'Units',
+        category:       item.category     || '',
+        specifications: item.specifications|| '',
         ...(item.itemId ? { itemId:item.itemId } : {})
       }))
     });
@@ -516,9 +516,9 @@ const BuyerPurchaseOrders = () => {
         ...values,
         totalAmount:         total,
         expectedDeliveryDate:values.expectedDeliveryDate?.endOf('day').toISOString(),
-        // ─── NEW: include tax in update payload ────────────────────────────────
         taxApplicable:       values.taxApplicable || false,
-        taxRate:             values.taxRate        || 19.25,
+        taxRate:             values.taxRate       || 19.25,
+        budgetCodeId:        values.budgetCodeId  || undefined,
         items: (values.items||[]).map(item => ({
           ...item, totalPrice:(Number(item.quantity)||0)*(Number(item.unitPrice)||0)
         }))
@@ -709,18 +709,37 @@ const BuyerPurchaseOrders = () => {
       render:(_,r)=>(
         <Space size={4} direction="vertical">
           <Space size={4}>
-            <Tooltip title="View"><Button size="small" icon={<EyeOutlined/>} onClick={()=>handleViewDetails(r)}/></Tooltip>
-            {r.status==='draft'&&<Tooltip title="Send to Supply Chain"><Button size="small" type="primary" icon={<SendOutlined/>} onClick={()=>handleSendToSupplyChain(r)}/></Tooltip>}
-            {r.status==='approved'&&<Tooltip title="Send to Supplier"><Button size="small" type="primary" icon={<SendOutlined/>} onClick={()=>handleSendPO(r)}/></Tooltip>}
-            {!['delivered','completed','cancelled','pending_supply_chain_assignment'].includes(r.status)&&(
-              <Tooltip title="Edit"><Button size="small" icon={<EditOutlined/>} onClick={()=>handleEditPO(r)}/></Tooltip>
+            <Tooltip title="View">
+              <Button size="small" icon={<EyeOutlined/>} onClick={()=>handleViewDetails(r)}/>
+            </Tooltip>
+            {r.status==='draft'&&(
+              <Tooltip title="Send to Supply Chain">
+                <Button size="small" type="primary" icon={<SendOutlined/>} onClick={()=>handleSendToSupplyChain(r)}/>
+              </Tooltip>
+            )}
+            {r.status==='approved'&&(
+              <Tooltip title="Send to Supplier">
+                <Button size="small" type="primary" icon={<SendOutlined/>} onClick={()=>handleSendPO(r)}/>
+              </Tooltip>
+            )}
+            {/* FIX: removed 'pending_supply_chain_assignment' from exclusion list */}
+            {!NON_EDITABLE_STATUSES.includes(r.status)&&(
+              <Tooltip title="Edit">
+                <Button size="small" icon={<EditOutlined/>} onClick={()=>handleEditPO(r)}/>
+              </Tooltip>
             )}
           </Space>
           <Space size={4}>
-            <Tooltip title="Download PDF"><Button size="small" icon={<DownloadOutlined/>} loading={pdfLoading} onClick={()=>handleDownloadPDF(r)}/></Tooltip>
-            <Tooltip title="Email PDF"><Button size="small" icon={<ShareAltOutlined/>} onClick={()=>handleEmailPDF(r)}/></Tooltip>
+            <Tooltip title="Download PDF">
+              <Button size="small" icon={<DownloadOutlined/>} loading={pdfLoading} onClick={()=>handleDownloadPDF(r)}/>
+            </Tooltip>
+            <Tooltip title="Email PDF">
+              <Button size="small" icon={<ShareAltOutlined/>} onClick={()=>handleEmailPDF(r)}/>
+            </Tooltip>
             {!['delivered','completed','cancelled'].includes(r.status)&&(
-              <Tooltip title="Cancel"><Button size="small" danger icon={<StopOutlined/>} onClick={()=>handleCancelPO(r)}/></Tooltip>
+              <Tooltip title="Cancel">
+                <Button size="small" danger icon={<StopOutlined/>} onClick={()=>handleCancelPO(r)}/>
+              </Tooltip>
             )}
           </Space>
         </Space>
@@ -811,17 +830,31 @@ const BuyerPurchaseOrders = () => {
         </Col>
         <Col span={12}>
           <Form.Item
-            name="taxRate"
-            label="Tax Rate (%)"
-            initialValue={19.25}
-            dependencies={['taxApplicable']}
+            noStyle
+            shouldUpdate={(prev, curr) => prev.taxApplicable !== curr.taxApplicable}
           >
-            <InputNumber
-              min={0} max={100} precision={2}
-              style={{ width:'100%' }}
-              addonAfter="%"
-              placeholder="19.25"
-            />
+            {({ getFieldValue }) => (
+              <Form.Item
+                name="taxRate"
+                label="Tax Rate (%)"
+                initialValue={19.25}
+                rules={[
+                  {
+                    required: getFieldValue('taxApplicable'),
+                    message: 'Please select a tax rate'
+                  }
+                ]}
+              >
+                <Select
+                  placeholder="Select tax rate"
+                  disabled={!getFieldValue('taxApplicable')}
+                  style={{ width: '100%' }}
+                >
+                  <Option value={19.25}>19.25% (Standard VAT)</Option>
+                  <Option value={5.5}>5.5% (Reduced Rate)</Option>
+                </Select>
+              </Form.Item>
+            )}
           </Form.Item>
         </Col>
       </Row>
@@ -1012,8 +1045,7 @@ const BuyerPurchaseOrders = () => {
         styles={{ body:{ maxHeight:'82vh', overflowY:'auto' } }}
         destroyOnClose
       >
-        <Form form={createForm} layout="vertical" initialValues={{ currency:'XAF', taxApplicable:false, taxRate:19.25, items:[{}] }}>
-
+        <Form form={createForm} layout="vertical" initialValues={{ currency:'XAF', taxApplicable:false, taxRate:null, items:[{}] }}>
           {/* ── Path A: Tender selection ── */}
           {poCreationPath === 'withTender' && (
             <TenderSelectionBlock
@@ -1101,7 +1133,6 @@ const BuyerPurchaseOrders = () => {
                 </Select>
               </Form.Item>
             </Col>
-            {/* ─── NEW: Budget Code in the 3rd column ─────────────────────────── */}
             <Col span={8}>
               <BudgetCodeSelect/>
             </Col>
@@ -1114,7 +1145,6 @@ const BuyerPurchaseOrders = () => {
             <TextArea rows={2} placeholder="Special instructions for the supplier…"/>
           </Form.Item>
 
-          {/* ─── NEW: Tax Configuration ──────────────────────────────────────── */}
           <TaxConfigBlock/>
 
           <Form.Item name="notes" label="Internal Notes">
@@ -1163,6 +1193,13 @@ const BuyerPurchaseOrders = () => {
             </Col>
           </Row>
 
+          {/* FIX: Budget Code field in Edit modal */}
+          <Row gutter={16}>
+            <Col span={24}>
+              <BudgetCodeSelect/>
+            </Col>
+          </Row>
+
           <Form.Item name="deliveryAddress" label="Delivery Address" rules={[{required:true}]}>
             <TextArea rows={2}/>
           </Form.Item>
@@ -1201,7 +1238,6 @@ const BuyerPurchaseOrders = () => {
             )}
           </Form.List>
 
-          {/* ─── NEW: Tax Configuration in Edit modal ──────────────────────── */}
           <TaxConfigBlock/>
 
           <Divider orientation="left">Additional Information</Divider>
@@ -1297,7 +1333,6 @@ const BuyerPurchaseOrders = () => {
                 <Descriptions.Item label="Payment Terms">{selectedPO.paymentTerms}</Descriptions.Item>
                 <Descriptions.Item label="Delivery">{selectedPO.deliveryAddress}</Descriptions.Item>
                 <Descriptions.Item label="Expected">{selectedPO.expectedDeliveryDate?moment(selectedPO.expectedDeliveryDate).format('DD MMM YYYY'):'—'}</Descriptions.Item>
-                {/* ─── NEW: tax info in drawer ──────────────────────────────── */}
                 {selectedPO.taxApplicable && (
                   <>
                     <Descriptions.Item label="Tax Rate">{selectedPO.taxRate}%</Descriptions.Item>
@@ -1361,10 +1396,21 @@ const BuyerPurchaseOrders = () => {
             </Card>
 
             <Space wrap>
-              {selectedPO.status==='draft'&&<Button type="primary" icon={<SendOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleSendToSupplyChain(selectedPO); }}>Send to Supply Chain</Button>}
-              {selectedPO.status==='approved'&&<Button type="primary" icon={<SendOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleSendPO(selectedPO); }}>Send to Supplier</Button>}
-              {!['delivered','completed','cancelled','pending_supply_chain_assignment'].includes(selectedPO.status)&&(
-                <Button icon={<EditOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleEditPO(selectedPO); }}>Edit PO</Button>
+              {selectedPO.status==='draft'&&(
+                <Button type="primary" icon={<SendOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleSendToSupplyChain(selectedPO); }}>
+                  Send to Supply Chain
+                </Button>
+              )}
+              {selectedPO.status==='approved'&&(
+                <Button type="primary" icon={<SendOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleSendPO(selectedPO); }}>
+                  Send to Supplier
+                </Button>
+              )}
+              {/* FIX: removed 'pending_supply_chain_assignment' from exclusion list in drawer too */}
+              {!NON_EDITABLE_STATUSES.includes(selectedPO.status)&&(
+                <Button icon={<EditOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleEditPO(selectedPO); }}>
+                  Edit PO
+                </Button>
               )}
               <Button icon={<DownloadOutlined/>} loading={pdfLoading} onClick={()=>handleDownloadPDF(selectedPO)}>Download PDF</Button>
               <Button icon={<ShareAltOutlined/>} onClick={()=>handleEmailPDF(selectedPO)}>Email PDF</Button>
@@ -1376,7 +1422,1417 @@ const BuyerPurchaseOrders = () => {
   );
 };
 
-export default BuyerPurchaseOrders;
+export default BuyerPurchaseOrders;  
+
+
+
+
+
+
+
+
+
+
+
+
+// // BuyerPurchaseOrders.jsx — complete drop-in replacement
+// // Supports:
+// //   Path A — Create PO with an approved/awarded tender (existing flow)
+// //   Path B — Create PO without tender via signed-document justification
+// // NEW: Tax configuration + Budget Code fields added to both Create and Edit modals
+// import React, { useState, useEffect, useCallback } from 'react';
+// import {
+//   Card, Table, Button, Space, Typography, Tag, Row, Col, Statistic,
+//   Modal, Form, Input, Select, DatePicker, Progress, Tabs, Alert,
+//   Divider, Badge, message, Tooltip, Descriptions, Drawer, List,
+//   Avatar, Steps, notification, Spin, InputNumber, Popconfirm,
+//   Upload, Checkbox
+// } from 'antd';
+// import {
+//   FileTextOutlined, ShoppingCartOutlined, TruckOutlined, DollarOutlined,
+//   CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined,
+//   ExclamationCircleOutlined, UserOutlined, EditOutlined, EyeOutlined,
+//   DownloadOutlined, PrinterOutlined, MailOutlined, WarningOutlined,
+//   SyncOutlined, StopOutlined, ReloadOutlined, SendOutlined, PlusOutlined,
+//   DeleteOutlined, FileDoneOutlined, TrophyOutlined, FileZipOutlined,
+//   ShareAltOutlined, TeamOutlined, UploadOutlined, InfoCircleOutlined,
+//   ExceptionOutlined, TagOutlined
+// } from '@ant-design/icons';
+// import moment from 'moment';
+// import { buyerRequisitionAPI } from '../../services/buyerRequisitionAPI';
+// import UnifiedSupplierAPI from '../../services/unifiedSupplierAPI';
+// import tenderAPI from '../../services/tenderAPI';
+
+// const { Title, Text, Paragraph } = Typography;
+// const { TextArea } = Input;
+// const { Option } = Select;
+// const { Dragger } = Upload;
+
+// // ─────────────────────────────────────────────
+// // Status display helpers
+// // ─────────────────────────────────────────────
+// const PO_STATUS_MAP = {
+//   draft:                            { color:'default',  text:'Draft',            icon:<EditOutlined/> },
+//   pending_supply_chain_assignment:  { color:'orange',   text:'Pending SC',       icon:<ClockCircleOutlined/> },
+//   pending_department_approval:      { color:'orange',   text:'Dept Approval',    icon:<ClockCircleOutlined/> },
+//   pending_head_of_business_approval:{ color:'gold',     text:'Head Approval',    icon:<ClockCircleOutlined/> },
+//   pending_finance_approval:         { color:'blue',     text:'Finance Approval', icon:<ClockCircleOutlined/> },
+//   approved:                         { color:'blue',     text:'Approved',         icon:<CheckCircleOutlined/> },
+//   sent_to_supplier:                 { color:'purple',   text:'Sent to Supplier', icon:<MailOutlined/> },
+//   acknowledged:                     { color:'cyan',     text:'Acknowledged',     icon:<CheckCircleOutlined/> },
+//   in_production:                    { color:'geekblue', text:'In Production',    icon:<SyncOutlined/> },
+//   delivered:                        { color:'green',    text:'Delivered',        icon:<CheckCircleOutlined/> },
+//   completed:                        { color:'success',  text:'Completed',        icon:<CheckCircleOutlined/> },
+//   cancelled:                        { color:'red',      text:'Cancelled',        icon:<StopOutlined/> },
+//   on_hold:                          { color:'magenta',  text:'On Hold',          icon:<ExclamationCircleOutlined/> }
+// };
+
+// const getStatusTag = (status) => {
+//   const c = PO_STATUS_MAP[status] || { color:'default', text:status, icon:<FileTextOutlined/> };
+//   return <Tag color={c.color} icon={c.icon}>{c.text}</Tag>;
+// };
+
+// const STAGE_LABELS = ['PO Created','Supplier Acknowledgment','Production/Preparation','Shipment','Delivery & Completion'];
+// const STAGE_IDX    = { created:0, supplier_acknowledgment:1, in_production:2, in_transit:3, completed:4 };
+
+// // ─────────────────────────────────────────────
+// // TenderSelectionBlock — used in Path A
+// // ─────────────────────────────────────────────
+// const TenderSelectionBlock = ({ tenders, loading, selectedId, onSelect, error }) => {
+//   const selected = tenders.find(t => t._id === selectedId);
+//   return (
+//     <div style={{ marginBottom:20 }}>
+//       <Alert
+//         message="An approved tender is linked to this PO"
+//         description="Select the tender that authorises this purchase."
+//         type="info" showIcon style={{ marginBottom:12 }}
+//       />
+//       <Text strong>Select Tender <span style={{ color:'#ff4d4f' }}>*</span></Text>
+//       <div style={{ marginTop:6 }}>
+//         {loading ? <Spin size="small" /> : tenders.length === 0 ? (
+//           <Alert message="No approved tenders available" type="warning" showIcon/>
+//         ) : (
+//           <Select style={{ width:'100%' }} placeholder="Select an approved / awarded tender"
+//             value={selectedId||undefined} status={error?'error':''} onChange={onSelect}
+//             showSearch optionLabelProp="label"
+//             filterOption={(input,opt)=>(opt.label||'').toLowerCase().includes(input.toLowerCase())}
+//           >
+//             {tenders.map(t=>(
+//               <Option key={t._id} value={t._id} label={`${t.tenderNumber} — ${t.title}`}>
+//                 <div>
+//                   <Text strong>{t.tenderNumber}</Text> — {t.title}
+//                   {t.awardedSupplierName&&<Tag color="gold" icon={<TrophyOutlined/>} style={{ marginLeft:8 }}>{t.awardedSupplierName}</Tag>}
+//                   <Tag color={t.status==='awarded'?'gold':'green'} style={{ marginLeft:4 }}>{t.status}</Tag>
+//                   <br/>
+//                   <Text type="secondary" style={{ fontSize:11 }}>
+//                     Budget: XAF {(t.budget||0).toLocaleString()}
+//                     {t.itemCategory?` · ${t.itemCategory}`:''}
+//                   </Text>
+//                 </div>
+//               </Option>
+//             ))}
+//           </Select>
+//         )}
+//       </div>
+//       {error && <div style={{ color:'#ff4d4f', fontSize:12, marginTop:4 }}>Please select a tender</div>}
+//       {selected && (
+//         <Alert style={{ marginTop:10 }} type="success" showIcon
+//           message={<Space><Text strong>{selected.tenderNumber}</Text><Text>—</Text><Text>{selected.title}</Text>
+//             {selected.awardedSupplierName&&<Tag color="gold" icon={<TrophyOutlined/>}>{selected.awardedSupplierName}</Tag>}
+//           </Space>}
+//           description={`Budget: XAF ${(selected.budget||0).toLocaleString()}${selected.paymentTerms?` · ${selected.paymentTerms}`:''}`}
+//         />
+//       )}
+//       <Divider style={{ margin:'14px 0 4px' }}/>
+//     </div>
+//   );
+// };
+
+// // ─────────────────────────────────────────────
+// // JustificationBlock — used in Path B
+// // ─────────────────────────────────────────────
+// const JustificationBlock = ({ form, fileList, onFileChange }) => (
+//   <div style={{ marginBottom:20 }}>
+//     <Alert
+//       message="Special Case — No Tender"
+//       description="You are creating this PO without a tender. A manually-signed justification document is required. Upload the signed document and provide a reason below."
+//       type="warning" showIcon style={{ marginBottom:16 }}
+//       icon={<ExceptionOutlined/>}
+//     />
+
+//     <Form.Item
+//       name="documentName"
+//       label={<Space><FileTextOutlined/><span>Signed Document Name <span style={{ color:'#ff4d4f' }}>*</span></span></Space>}
+//       rules={[{ required:true, message:'Document name is required' }]}
+//       extra="Enter the name / reference of the manually-signed authorisation document"
+//     >
+//       <Input placeholder="e.g. Emergency Procurement Authorisation — April 2026" size="large"/>
+//     </Form.Item>
+
+//     <Form.Item
+//       name="justificationNote"
+//       label={<Space><ExclamationCircleOutlined/><span>Justification Note <span style={{ color:'#ff4d4f' }}>*</span></span></Space>}
+//       rules={[
+//         { required:true, message:'Justification note is required' },
+//         { min:20, message:'Please provide a detailed justification (minimum 20 characters)' }
+//       ]}
+//       extra="Explain clearly why this purchase is being made without a tender"
+//     >
+//       <TextArea
+//         rows={4}
+//         placeholder="Explain why no tender was raised for this purchase. Include urgency, supplier constraints, or management directive as applicable…"
+//         maxLength={1000}
+//         showCount
+//       />
+//     </Form.Item>
+
+//     <Form.Item
+//       name="justificationDocument"
+//       label={<Space><UploadOutlined/><span>Upload Signed Document <span style={{ color:'#ff4d4f' }}>*</span></span></Space>}
+//       rules={[{ required:true, message:'Please upload the signed justification document' }]}
+//       extra="Accepted: PDF, JPEG, PNG — max 10 MB"
+//     >
+//       <Dragger
+//         name="justificationDocument"
+//         fileList={fileList}
+//         beforeUpload={() => false}
+//         onChange={onFileChange}
+//         maxCount={1}
+//         accept=".pdf,.jpg,.jpeg,.png"
+//         style={{ padding:'10px 0' }}
+//       >
+//         <p className="ant-upload-drag-icon"><UploadOutlined style={{ fontSize:32, color:'#fa8c16' }}/></p>
+//         <p className="ant-upload-text" style={{ fontSize:13 }}>
+//           Click or drag your signed document here
+//         </p>
+//         <p className="ant-upload-hint" style={{ fontSize:11 }}>
+//           PDF, JPEG or PNG · max 10 MB · 1 file only
+//         </p>
+//       </Dragger>
+//     </Form.Item>
+
+//     <Divider style={{ margin:'4px 0 14px' }}/>
+//   </div>
+// );
+
+// // ═══════════════════════════════════════════════════════════════════════════
+// // MAIN COMPONENT
+// // ═══════════════════════════════════════════════════════════════════════════
+// const BuyerPurchaseOrders = () => {
+//   // ── Data state ────────────────────────────────────────────────────────────
+//   const [purchaseOrders,  setPurchaseOrders]  = useState([]);
+//   const [tenders,         setTenders]         = useState([]);
+//   const [suppliers,       setSuppliers]       = useState([]);
+//   const [itemCategories,  setItemCategories]  = useState([]);
+//   // ─── NEW: budget codes state ───────────────────────────────────────────────
+//   const [budgetCodes,     setBudgetCodes]     = useState([]);
+
+//   // ── UI state ──────────────────────────────────────────────────────────────
+//   const [loading,         setLoading]         = useState(false);
+//   const [tendersLoading,  setTendersLoading]  = useState(false);
+//   const [initialLoading,  setInitialLoading]  = useState(true);
+//   const [pdfLoading,      setPdfLoading]      = useState(false);
+//   const [activeTab,       setActiveTab]       = useState('all');
+
+//   // ── Modal flags ───────────────────────────────────────────────────────────
+//   const [createModalVisible,  setCreateModalVisible]  = useState(false);
+//   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
+//   const [editModalVisible,    setEditModalVisible]    = useState(false);
+//   const [sendModalVisible,    setSendModalVisible]    = useState(false);
+//   const [emailPDFModalVisible,setEmailPDFModalVisible]= useState(false);
+//   const [pathChoiceVisible,   setPathChoiceVisible]   = useState(false);
+
+//   // ── Selected / form state ─────────────────────────────────────────────────
+//   const [selectedPO,          setSelectedPO]          = useState(null);
+//   const [poCreationPath,      setPoCreationPath]       = useState('withTender');
+//   const [selectedTenderId,    setSelectedTenderId]     = useState(null);
+//   const [tenderError,         setTenderError]          = useState(false);
+//   const [isExternalSupplier,  setIsExternalSupplier]  = useState(false);
+//   const [justificationFile,   setJustificationFile]   = useState([]);
+
+//   const [createForm]    = Form.useForm();
+//   const [editForm]      = Form.useForm();
+//   const [sendForm]      = Form.useForm();
+//   const [emailPDFForm]  = Form.useForm();
+
+//   // ── Data loading ───────────────────────────────────────────────────────────
+//   const loadPurchaseOrders = useCallback(async () => {
+//     try {
+//       setLoading(true);
+//       const res = await buyerRequisitionAPI.getPurchaseOrders();
+//       if (res.success && res.data) setPurchaseOrders(res.data);
+//     } catch { message.error('Error loading purchase orders'); }
+//     finally { setLoading(false); setInitialLoading(false); }
+//   }, []);
+
+//   const loadApprovedTenders = useCallback(async () => {
+//     setTendersLoading(true);
+//     try {
+//       const [ra, rw] = await Promise.all([
+//         tenderAPI.getTenders({ status:'approved' }),
+//         tenderAPI.getTenders({ status:'awarded'  })
+//       ]);
+//       const all = [
+//         ...(ra.success ? ra.data : []),
+//         ...(rw.success ? rw.data : [])
+//       ];
+//       setTenders(all.filter(t => !t.purchaseOrderId));
+//     } catch { message.warning('Could not load tenders'); }
+//     finally { setTendersLoading(false); }
+//   }, []);
+
+//   const loadSuppliers = useCallback(async () => {
+//     try {
+//       const res = await UnifiedSupplierAPI.getAllSuppliers({ status:'approved' });
+//       if (res.success && res.data) setSuppliers(res.data);
+//     } catch {}
+//   }, []);
+
+//   const loadItemCategories = useCallback(async () => {
+//     try {
+//       const res = await buyerRequisitionAPI.getItemCategories();
+//       if (res.success && res.data) setItemCategories(res.data);
+//     } catch {}
+//   }, []);
+
+//   // ─── NEW: load budget codes ────────────────────────────────────────────────
+//   const loadBudgetCodes = useCallback(async () => {
+//     try {
+//       const res = await buyerRequisitionAPI.getBudgetCodes();
+//       if (res.success && res.data) setBudgetCodes(res.data);
+//     } catch { message.warning('Could not load budget codes'); }
+//   }, []);
+
+//   useEffect(() => {
+//     Promise.all([
+//       loadPurchaseOrders(),
+//       loadApprovedTenders(),
+//       loadSuppliers(),
+//       loadItemCategories(),
+//       loadBudgetCodes(), // NEW
+//     ]);
+//   }, []);
+
+//   // ── Derived / filtered ─────────────────────────────────────────────────────
+//   const getFilteredPOs = () => {
+//     switch (activeTab) {
+//       case 'active':    return purchaseOrders.filter(po => !['delivered','completed','cancelled'].includes(po.status));
+//       case 'overdue':   return purchaseOrders.filter(po =>
+//         moment(po.expectedDeliveryDate).isBefore(moment()) &&
+//         !['delivered','completed','cancelled'].includes(po.status));
+//       case 'delivered': return purchaseOrders.filter(po => ['delivered','completed'].includes(po.status));
+//       default:          return purchaseOrders;
+//     }
+//   };
+
+//   const stats = {
+//     total:      purchaseOrders.length,
+//     active:     purchaseOrders.filter(po => !['delivered','completed','cancelled'].includes(po.status)).length,
+//     overdue:    purchaseOrders.filter(po =>
+//       moment(po.expectedDeliveryDate).isBefore(moment()) &&
+//       !['delivered','completed','cancelled'].includes(po.status)).length,
+//     totalValue: purchaseOrders.reduce((s, po) => s + (po.totalAmount||0), 0)
+//   };
+
+//   // ── Path selection ─────────────────────────────────────────────────────────
+//   const handleCreateNewPO = () => {
+//     setPathChoiceVisible(true);
+//   };
+
+//   const openCreateModal = (path) => {
+//     setPoCreationPath(path);
+//     setPathChoiceVisible(false);
+//     setSelectedTenderId(null);
+//     setTenderError(false);
+//     setIsExternalSupplier(false);
+//     setJustificationFile([]);
+//     createForm.resetFields();
+//     setCreateModalVisible(true);
+//   };
+
+//   // ── Helpers: build FormData for both paths ─────────────────────────────────
+//   const buildFormData = (values, extraFields = {}) => {
+//     const fd = new FormData();
+
+//     fd.append('supplierDetails', JSON.stringify(extraFields.supplierDetails || {}));
+//     fd.append('items',           JSON.stringify(values.items || []));
+//     fd.append('totalAmount',     String((values.items||[]).reduce((s,i)=>(Number(i.quantity)||0)*(Number(i.unitPrice)||0)+s, 0)));
+//     fd.append('currency',        values.currency || 'XAF');
+
+//     // ─── NEW: tax fields ──────────────────────────────────────────────────────
+//     fd.append('taxApplicable',   String(values.taxApplicable || false));
+//     // fd.append('taxRate',         String(values.taxRate       || 19.25));
+//     fd.append('taxRate',         String(values.taxRate ?? 19.25));
+
+//     // ─── NEW: budget code ─────────────────────────────────────────────────────
+//     if (values.budgetCodeId) {
+//       fd.append('budgetCodeId', values.budgetCodeId);
+//     }
+
+//     fd.append('deliveryAddress',     values.deliveryAddress     || '');
+//     if (values.expectedDeliveryDate)
+//       fd.append('expectedDeliveryDate', values.expectedDeliveryDate.endOf('day').toISOString());
+//     fd.append('paymentTerms',        values.paymentTerms        || '');
+//     fd.append('specialInstructions', values.specialInstructions || '');
+//     fd.append('notes',               values.notes               || '');
+
+//     if (poCreationPath === 'withTender') {
+//       fd.append('tenderId',     extraFields.tenderId     || '');
+//       fd.append('tenderNumber', extraFields.tenderNumber || '');
+//     } else {
+//       fd.append('documentName',      values.documentName      || '');
+//       fd.append('justificationNote', values.justificationNote || '');
+//       if (justificationFile.length > 0 && justificationFile[0].originFileObj) {
+//         fd.append('justificationDocument', justificationFile[0].originFileObj);
+//       }
+//     }
+
+//     return fd;
+//   };
+
+//   // ── Resolve supplier details ───────────────────────────────────────────────
+//   const resolveSupplierDetails = (values) => {
+//     if (isExternalSupplier) {
+//       return {
+//         name:       values.externalSupplierName  || '',
+//         email:      values.externalSupplierEmail || '',
+//         phone:      values.externalSupplierPhone || '',
+//         address:    values.externalSupplierAddress || '',
+//         isExternal: true
+//       };
+//     }
+//     const sup = suppliers.find(s => s._id === values.supplierId);
+//     if (!sup) return null;
+//     const addr = sup.supplierDetails?.address;
+//     return {
+//       id:         sup._id,
+//       name:       sup.supplierDetails?.companyName || sup.fullName || '',
+//       email:      sup.email || '',
+//       phone:      sup.phoneNumber || sup.supplierDetails?.phoneNumber || '',
+//       address:    typeof addr === 'object'
+//         ? `${addr.street||''}, ${addr.city||''}, ${addr.state||''}`.replace(/^,|,$/g,'').trim()
+//         : addr || '',
+//       isExternal: false
+//     };
+//   };
+
+//   // ── Create PO ──────────────────────────────────────────────────────────────
+//   const handleCreatePO = async () => {
+//     try {
+//       const values = await createForm.validateFields();
+
+//       if (poCreationPath === 'withTender' && !selectedTenderId) {
+//         setTenderError(true);
+//         message.error('Please select a tender');
+//         return;
+//       }
+
+//       if (poCreationPath === 'withoutTender' && justificationFile.length === 0) {
+//         message.error('Please upload the signed justification document');
+//         return;
+//       }
+
+//       const supplierDetails = resolveSupplierDetails(values);
+//       if (!supplierDetails) { message.error('Please select a supplier'); return; }
+
+//       // ─── NEW: budget code validation ───────────────────────────────────────
+//       if (values.budgetCodeId) {
+//         const selectedBudgetCode = budgetCodes.find(bc => bc._id === values.budgetCodeId);
+//         if (selectedBudgetCode) {
+//           const itemsTotal = (values.items||[]).reduce((s,i)=>(Number(i.quantity)||0)*(Number(i.unitPrice)||0)+s, 0);
+//           const availableBalance = selectedBudgetCode.remaining || (selectedBudgetCode.budget - selectedBudgetCode.used);
+//           if (itemsTotal > availableBalance) {
+//             message.error(
+//               `Insufficient budget. Available: ${buyerRequisitionAPI.formatCurrency
+//                 ? buyerRequisitionAPI.formatCurrency(availableBalance)
+//                 : availableBalance.toLocaleString()
+//               }, Required: ${itemsTotal.toLocaleString()}`
+//             );
+//             return;
+//           }
+//         }
+//       }
+
+//       setLoading(true);
+
+//       let extraFields = { supplierDetails };
+//       if (poCreationPath === 'withTender') {
+//         const t = tenders.find(t => t._id === selectedTenderId);
+//         extraFields.tenderId     = selectedTenderId;
+//         extraFields.tenderNumber = t?.tenderNumber;
+//       }
+
+//       const fd = buildFormData(values, extraFields);
+
+//       const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+//       const res = await fetch(`${apiUrl}/buyer/purchase-orders`, {
+//         method:  'POST',
+//         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+//         body:    fd
+//       });
+//       const data = await res.json();
+
+//       if (data.success) {
+//         message.success('Purchase order created successfully');
+
+//         // ─── NEW: refresh budget codes after creation ──────────────────────────
+//         if (values.budgetCodeId) {
+//           try {
+//             await buyerRequisitionAPI.updateBudgetCodeBalance?.(values.budgetCodeId, 
+//               (values.items||[]).reduce((s,i)=>(Number(i.quantity)||0)*(Number(i.unitPrice)||0)+s,0)
+//             );
+//           } catch { /* non-fatal */ }
+//           await loadBudgetCodes();
+//         }
+
+//         notification.success({
+//           message:     'Purchase Order Created',
+//           description: poCreationPath === 'withoutTender'
+//             ? `${data.data.poNumber} created with justification — sent to Supply Chain.`
+//             : `${data.data.poNumber} linked to tender ${extraFields.tenderNumber}.`,
+//           duration: 6
+//         });
+//         setCreateModalVisible(false);
+//         createForm.resetFields();
+//         setSelectedTenderId(null);
+//         setJustificationFile([]);
+//         setIsExternalSupplier(false);
+//         await Promise.all([loadPurchaseOrders(), loadApprovedTenders()]);
+//       } else {
+//         message.error(data.message || 'Failed to create purchase order');
+//       }
+//     } catch (e) {
+//       if (e?.errorFields) message.error('Please fill all required fields');
+//       else { console.error(e); message.error('Error creating purchase order'); }
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   // ── Other PO actions ──────────────────────────────────────────────────────
+//   const handleViewDetails = async (po) => {
+//     setLoading(true);
+//     try {
+//       const res = await buyerRequisitionAPI.getPurchaseOrderDetails(po.id);
+//       if (res.success && res.data) { setSelectedPO(res.data.purchaseOrder); setDetailDrawerVisible(true); }
+//       else message.error('Failed to load PO details');
+//     } catch { message.error('Error loading PO details'); }
+//     finally { setLoading(false); }
+//   };
+
+//   const handleEditPO = (po) => {
+//     setSelectedPO(po);
+//     editForm.setFieldsValue({
+//       expectedDeliveryDate: po.expectedDeliveryDate ? moment(po.expectedDeliveryDate) : null,
+//       deliveryAddress:      po.deliveryAddress,
+//       paymentTerms:         po.paymentTerms,
+//       specialInstructions:  po.specialInstructions || '',
+//       notes:                po.notes              || '',
+//       currency:             po.currency           || 'XAF',
+//       // ─── NEW: pre-fill tax fields ────────────────────────────────────────────
+//       // taxApplicable:        po.taxApplicable       || false,
+//       // taxRate:              po.taxRate             || 19.25,
+//       taxApplicable:        po.taxApplicable       || false,
+//       taxRate:              po.taxRate             || null,
+//       items: (po.items||[]).map(item => ({
+//         description:   item.description,
+//         quantity:      item.quantity,
+//         unitPrice:     item.unitPrice,
+//         unitOfMeasure: item.unitOfMeasure || 'Units',
+//         category:      item.category     || '',
+//         specifications:item.specifications|| '',
+//         ...(item.itemId ? { itemId:item.itemId } : {})
+//       }))
+//     });
+//     setEditModalVisible(true);
+//   };
+
+//   const handleUpdatePO = async () => {
+//     try {
+//       const values = await editForm.validateFields();
+//       setLoading(true);
+//       const total = (values.items||[]).reduce((s,i)=>(Number(i.quantity)||0)*(Number(i.unitPrice)||0)+s,0);
+//       const res = await buyerRequisitionAPI.updatePurchaseOrder(selectedPO.id, {
+//         ...values,
+//         totalAmount:         total,
+//         expectedDeliveryDate:values.expectedDeliveryDate?.endOf('day').toISOString(),
+//         // ─── NEW: include tax in update payload ────────────────────────────────
+//         taxApplicable:       values.taxApplicable || false,
+//         taxRate:             values.taxRate        || 19.25,
+//         items: (values.items||[]).map(item => ({
+//           ...item, totalPrice:(Number(item.quantity)||0)*(Number(item.unitPrice)||0)
+//         }))
+//       });
+//       if (res.success) {
+//         message.success('PO updated');
+//         notification.success({
+//           message: 'Purchase Order Updated',
+//           description: `PO ${selectedPO.poNumber} updated. New total: ${values.currency} ${total.toLocaleString()}`,
+//           duration: 5
+//         });
+//         setEditModalVisible(false);
+//         editForm.resetFields();
+//         loadPurchaseOrders();
+//       } else message.error(res.message || 'Failed to update');
+//     } catch { message.error('Error updating PO'); }
+//     finally { setLoading(false); }
+//   };
+
+//   const handleSendToSupplyChain = async (po) => {
+//     try {
+//       setLoading(true);
+//       const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+//       const res = await fetch(`${apiUrl}/buyer/purchase-orders/${po.id}`, {
+//         method: 'PUT',
+//         headers: { 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('token')}` },
+//         body:   JSON.stringify({ status:'pending_supply_chain_assignment' })
+//       });
+//       const data = await res.json();
+//       if (data.success) { message.success('PO sent to Supply Chain'); loadPurchaseOrders(); }
+//       else throw new Error(data.message);
+//     } catch (e) { message.error(e.message || 'Failed to send to Supply Chain'); }
+//     finally { setLoading(false); }
+//   };
+
+//   const handleSendPO = (po) => {
+//     setSelectedPO(po);
+//     sendForm.resetFields();
+//     setSendModalVisible(true);
+//   };
+
+//   const handleSendPOToSupplier = async () => {
+//     try {
+//       const values = await sendForm.validateFields();
+//       setLoading(true);
+//       const res = await buyerRequisitionAPI.sendPurchaseOrderToSupplier(selectedPO.id, { message:values.message });
+//       if (res.success) {
+//         message.success('PO sent to supplier');
+//         setSendModalVisible(false);
+//         sendForm.resetFields();
+//         loadPurchaseOrders();
+//       } else message.error(res.message || 'Failed to send');
+//     } catch { message.error('Error sending PO'); }
+//     finally { setLoading(false); }
+//   };
+
+//   const handleCancelPO = (po) => {
+//     let reason = '';
+//     Modal.confirm({
+//       title:    `Cancel PO ${po.poNumber}?`,
+//       okText:   'Cancel PO', okType:'danger',
+//       content: (
+//         <div>
+//           <p>This cannot be undone.</p>
+//           <TextArea placeholder="Reason for cancellation…" rows={3} style={{ marginTop:12 }}
+//             onChange={e=>{ reason = e.target.value; }}/>
+//         </div>
+//       ),
+//       onOk: async () => {
+//         if (!reason.trim()) { message.error('Please provide a reason'); return; }
+//         setLoading(true);
+//         try {
+//           const res = await buyerRequisitionAPI.cancelPurchaseOrder(po.id, { cancellationReason:reason.trim() });
+//           if (res.success) { message.success(`PO ${po.poNumber} cancelled`); loadPurchaseOrders(); }
+//           else message.error(res.message || 'Failed to cancel');
+//         } catch { message.error('Error cancelling PO'); }
+//         finally { setLoading(false); }
+//       }
+//     });
+//   };
+
+//   const handleDownloadPDF = async (po) => {
+//     setPdfLoading(true);
+//     try {
+//       const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+//       const res  = await fetch(`${apiUrl}/buyer/purchase-orders/${po.id}/download-pdf`, {
+//         headers:{ Authorization:`Bearer ${localStorage.getItem('token')}` }
+//       });
+//       if (!res.ok) throw new Error((await res.json()).message || 'Failed');
+//       const blob = await res.blob();
+//       const a    = document.createElement('a');
+//       a.href     = window.URL.createObjectURL(blob);
+//       a.download = `PO_${po.poNumber}.pdf`;
+//       document.body.appendChild(a); a.click(); document.body.removeChild(a);
+//       message.success('PDF downloaded');
+//     } catch (e) { message.error(e.message || 'Failed to download PDF'); }
+//     finally { setPdfLoading(false); }
+//   };
+
+//   const handleEmailPDF = (po) => {
+//     setSelectedPO(po);
+//     emailPDFForm.resetFields();
+//     emailPDFForm.setFieldsValue({ emailTo:po.supplierEmail });
+//     setEmailPDFModalVisible(true);
+//   };
+
+//   const handleSendEmailPDF = async () => {
+//     try {
+//       const values = await emailPDFForm.validateFields();
+//       setPdfLoading(true);
+//       const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+//       const res  = await fetch(`${apiUrl}/buyer/purchase-orders/${selectedPO.id}/email-pdf`, {
+//         method: 'POST',
+//         headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('token')}` },
+//         body:   JSON.stringify(values)
+//       });
+//       const data = await res.json();
+//       if (!res.ok || !data.success) throw new Error(data.message || 'Failed');
+//       message.success(`PDF emailed to ${values.emailTo}`);
+//       setEmailPDFModalVisible(false);
+//     } catch (e) { message.error(e.message || 'Failed to send PDF email'); }
+//     finally { setPdfLoading(false); }
+//   };
+
+//   // ── Table columns ──────────────────────────────────────────────────────────
+//   const columns = [
+//     {
+//       title:'PO Details', key:'details',
+//       render:(_,r)=>(
+//         <div>
+//           <Text strong>{r.poNumber||r.id}</Text><br/>
+//           <Text type="secondary" style={{ fontSize:11 }}>{moment(r.creationDate).format('MMM DD, HH:mm')}</Text>
+//           {r.tenderNumber&&(
+//             <><br/><Tag color="purple" style={{ fontSize:10 }} icon={<FileDoneOutlined/>}>{r.tenderNumber}</Tag></>
+//           )}
+//           {r.createdWithoutTender&&(
+//             <><br/><Tag color="orange" icon={<ExceptionOutlined/>} style={{ fontSize:10 }}>No Tender — Justified</Tag></>
+//           )}
+//         </div>
+//       ), width:160
+//     },
+//     {
+//       title:'Supplier', key:'supplier',
+//       render:(_,r)=>(
+//         <div>
+//           <Text strong>{r.supplierName}</Text><br/>
+//           <Text type="secondary" style={{ fontSize:11 }}>{r.supplierEmail}</Text>
+//         </div>
+//       ), width:180
+//     },
+//     {
+//       title:'Amount', key:'amount',
+//       render:(_,r)=><Text strong style={{ color:'#1890ff', fontSize:15 }}>{r.currency} {r.totalAmount?.toLocaleString()}</Text>,
+//       width:130, sorter:(a,b)=>(a.totalAmount||0)-(b.totalAmount||0)
+//     },
+//     {
+//       title:'Progress', key:'progress',
+//       render:(_,r)=>(
+//         <div>
+//           <Progress percent={r.progress||0} size="small" status={r.status==='cancelled'?'exception':'active'}/>
+//           <Text type="secondary" style={{ fontSize:11 }}>{STAGE_LABELS[STAGE_IDX[r.currentStage]]||'Created'}</Text>
+//         </div>
+//       ), width:150
+//     },
+//     {
+//       title:'Delivery', key:'delivery',
+//       render:(_,r)=>{
+//         if (!r.expectedDeliveryDate) return <Text type="secondary">—</Text>;
+//         const overdue = moment(r.expectedDeliveryDate).isBefore(moment()) && !['delivered','completed','cancelled'].includes(r.status);
+//         const days    = moment(r.expectedDeliveryDate).diff(moment(),'days');
+//         return (
+//           <div>
+//             <Text type={overdue?'danger':'default'}>{moment(r.expectedDeliveryDate).format('MMM DD')}</Text><br/>
+//             <Text type="secondary" style={{ fontSize:11 }}>
+//               {overdue ? `${Math.abs(days)}d overdue` : days===0?'Today':days>0?`${days}d left`:'Delivered'}
+//             </Text>
+//             {overdue&&<ExclamationCircleOutlined style={{ color:'#ff4d4f', marginLeft:4 }}/>}
+//           </div>
+//         );
+//       }, width:110
+//     },
+//     {
+//       title:'Status', dataIndex:'status', key:'status',
+//       render:s=>getStatusTag(s), width:155
+//     },
+//     {
+//       title:'Actions', key:'actions', width:200, fixed:'right',
+//       render:(_,r)=>(
+//         <Space size={4} direction="vertical">
+//           <Space size={4}>
+//             <Tooltip title="View"><Button size="small" icon={<EyeOutlined/>} onClick={()=>handleViewDetails(r)}/></Tooltip>
+//             {r.status==='draft'&&<Tooltip title="Send to Supply Chain"><Button size="small" type="primary" icon={<SendOutlined/>} onClick={()=>handleSendToSupplyChain(r)}/></Tooltip>}
+//             {r.status==='approved'&&<Tooltip title="Send to Supplier"><Button size="small" type="primary" icon={<SendOutlined/>} onClick={()=>handleSendPO(r)}/></Tooltip>}
+//             {!['delivered','completed','cancelled','pending_supply_chain_assignment'].includes(r.status)&&(
+//               <Tooltip title="Edit"><Button size="small" icon={<EditOutlined/>} onClick={()=>handleEditPO(r)}/></Tooltip>
+//             )}
+//           </Space>
+//           <Space size={4}>
+//             <Tooltip title="Download PDF"><Button size="small" icon={<DownloadOutlined/>} loading={pdfLoading} onClick={()=>handleDownloadPDF(r)}/></Tooltip>
+//             <Tooltip title="Email PDF"><Button size="small" icon={<ShareAltOutlined/>} onClick={()=>handleEmailPDF(r)}/></Tooltip>
+//             {!['delivered','completed','cancelled'].includes(r.status)&&(
+//               <Tooltip title="Cancel"><Button size="small" danger icon={<StopOutlined/>} onClick={()=>handleCancelPO(r)}/></Tooltip>
+//             )}
+//           </Space>
+//         </Space>
+//       )
+//     }
+//   ];
+
+//   if (initialLoading) return (
+//     <div style={{ padding:24, textAlign:'center' }}><Spin size="large"/></div>
+//   );
+
+//   // ─────────────────────────────────────────────
+//   // Items form fields (shared by both paths)
+//   // ─────────────────────────────────────────────
+//   const ItemsFormList = ({ formInstance }) => (
+//     <Form.List name="items" rules={[{ validator:async(_,v)=>{ if(!v||v.length<1) return Promise.reject('At least one item required'); } }]}>
+//       {(fields,{add,remove},{errors})=>(
+//         <>
+//           {fields.map(({key,name,...rest})=>(
+//             <Card key={key} size="small" style={{ marginBottom:10, borderLeft:'3px solid #1890ff' }}
+//               title={`Item ${name+1}`}
+//               extra={fields.length>1?<Button size="small" danger icon={<DeleteOutlined/>} onClick={()=>remove(name)}>Remove</Button>:null}
+//             >
+//               <Row gutter={16}>
+//                 <Col span={12}>
+//                   <Form.Item {...rest} name={[name,'description']} label="Description" rules={[{required:true}]}>
+//                     <Input placeholder="Item description"/>
+//                   </Form.Item>
+//                 </Col>
+//                 <Col span={6}>
+//                   <Form.Item {...rest} name={[name,'quantity']} label="Quantity" rules={[{required:true}]}>
+//                     <InputNumber min={1} style={{ width:'100%' }}/>
+//                   </Form.Item>
+//                 </Col>
+//                 <Col span={6}>
+//                   <Form.Item {...rest} name={[name,'unitPrice']} label="Unit Price" rules={[{required:true}]}>
+//                     <InputNumber min={0} style={{ width:'100%' }}
+//                       formatter={v=>`${v}`.replace(/\B(?=(\d{3})+(?!\d))/g,',')} parser={v=>v.replace(/,/g,'')}/>
+//                   </Form.Item>
+//                 </Col>
+//               </Row>
+//               <Row gutter={16}>
+//                 <Col span={8}>
+//                   <Form.Item {...rest} name={[name,'unitOfMeasure']} label="Unit of Measure">
+//                     <Select placeholder="Unit" allowClear>
+//                       {['Pieces','Sets','Boxes','Packs','Units','Each','Kg','Litres','Meters'].map(u=><Option key={u} value={u}>{u}</Option>)}
+//                     </Select>
+//                   </Form.Item>
+//                 </Col>
+//                 <Col span={8}>
+//                   <Form.Item {...rest} name={[name,'category']} label="Category">
+//                     <Select placeholder="Category" allowClear>
+//                       {itemCategories.map(c=><Option key={c} value={c}>{c}</Option>)}
+//                     </Select>
+//                   </Form.Item>
+//                 </Col>
+//                 <Col span={8}>
+//                   <Form.Item {...rest} name={[name,'specifications']} label="Specifications">
+//                     <Input placeholder="Optional"/>
+//                   </Form.Item>
+//                 </Col>
+//               </Row>
+//             </Card>
+//           ))}
+//           <Button type="dashed" onClick={()=>add()} block icon={<PlusOutlined/>}>Add Item</Button>
+//           <Form.ErrorList errors={errors}/>
+//         </>
+//       )}
+//     </Form.List>
+//   );
+
+//   // ─────────────────────────────────────────────
+//   // Reusable Tax Configuration block
+//   // ─────────────────────────────────────────────
+//   const TaxConfigBlock = () => (
+//     <>
+//       <Divider orientation="left">Tax Configuration</Divider>
+//       <Row gutter={16}>
+//         <Col span={12}>
+//           <Form.Item
+//             name="taxApplicable"
+//             label=" "
+//             valuePropName="checked"
+//             initialValue={false}
+//           >
+//             <Checkbox>Apply tax to this purchase order</Checkbox>
+//           </Form.Item>
+//         </Col>
+//         <Col span={12}>
+//           <Form.Item
+//             noStyle
+//             shouldUpdate={(prev, curr) => prev.taxApplicable !== curr.taxApplicable}
+//           >
+//             {({ getFieldValue }) => (
+//               <Form.Item
+//                 name="taxRate"
+//                 label="Tax Rate (%)"
+//                 initialValue={19.25}
+//                 rules={[
+//                   {
+//                     required: getFieldValue('taxApplicable'),
+//                     message: 'Please select a tax rate'
+//                   }
+//                 ]}
+//               >
+//                 <Select
+//                   placeholder="Select tax rate"
+//                   disabled={!getFieldValue('taxApplicable')}
+//                   style={{ width: '100%' }}
+//                 >
+//                   <Option value={19.25}>19.25% (Standard VAT)</Option>
+//                   <Option value={5.5}>5.5% (Reduced Rate)</Option>
+//                 </Select>
+//               </Form.Item>
+//             )}
+//           </Form.Item>
+//         </Col>
+//       </Row>
+//     </>
+//   );
+
+
+//   // ─────────────────────────────────────────────
+//   // Reusable Budget Code select block
+//   // ─────────────────────────────────────────────
+//   const BudgetCodeSelect = () => (
+//     <Form.Item
+//       name="budgetCodeId"
+//       label={
+//         <Space>
+//           Budget Code (Optional)
+//           {budgetCodes.length > 0 && (
+//             <Tag color="blue" icon={<TagOutlined/>} style={{ fontSize:11 }}>
+//               {budgetCodes.length} available
+//             </Tag>
+//           )}
+//         </Space>
+//       }
+//     >
+//       <Select
+//         placeholder="Select budget code"
+//         allowClear
+//         showSearch
+//         notFoundContent={budgetCodes.length === 0 ? <Spin size="small" /> : 'No budget codes found'}
+//         optionFilterProp="children"
+//       >
+//         {budgetCodes.map(bc => {
+//           const available = bc.remaining ?? (bc.budget - bc.used);
+//           const utilPct   = bc.budget > 0 ? (bc.used / bc.budget) * 100 : 0;
+//           return (
+//             <Option key={bc._id} value={bc._id}>
+//               <div>
+//                 <div style={{ fontWeight:'bold' }}>{bc.code} — {bc.name}</div>
+//                 <div style={{ fontSize:12, color:'#666' }}>
+//                   Available: {available?.toLocaleString()} / {bc.budget?.toLocaleString()}
+//                 </div>
+//                 <div style={{ fontSize:11, color: utilPct > 80 ? '#ff4d4f' : '#52c41a' }}>
+//                   Utilisation: {utilPct.toFixed(1)}%
+//                 </div>
+//               </div>
+//             </Option>
+//           );
+//         })}
+//       </Select>
+//     </Form.Item>
+//   );
+
+//   // ─────────────────────────────────────────────
+//   // Render
+//   // ─────────────────────────────────────────────
+//   return (
+//     <div style={{ padding:24 }}>
+//       <Card>
+//         {/* Header */}
+//         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24 }}>
+//           <div>
+//             <Title level={3} style={{ margin:0 }}><FileTextOutlined style={{ marginRight:8 }}/>Purchase Order Management</Title>
+//             <Text type="secondary">POs require an approved tender — or a signed justification for special cases</Text>
+//           </div>
+//           <Space>
+//             <Button icon={<ReloadOutlined/>} onClick={loadPurchaseOrders} loading={loading}>Refresh</Button>
+//             <Button type="primary" icon={<PlusOutlined/>} onClick={handleCreateNewPO}>Create New PO</Button>
+//           </Space>
+//         </div>
+
+//         {/* Stats */}
+//         <Row gutter={16} style={{ marginBottom:24 }}>
+//           <Col span={5}><Statistic title="Total POs"   value={stats.total}   valueStyle={{ color:'#1890ff' }}/></Col>
+//           <Col span={5}><Statistic title="Active"      value={stats.active}  valueStyle={{ color:'#faad14' }}/></Col>
+//           <Col span={5}><Statistic title="Overdue"     value={stats.overdue} valueStyle={{ color:'#ff4d4f' }}/></Col>
+//           <Col span={5}><Statistic title="Total Value" value={`${(stats.totalValue/1000000).toFixed(1)}M`} suffix="XAF" valueStyle={{ color:'#13c2c2' }}/></Col>
+//           <Col span={4}>
+//             <Card size="small" style={{ background:tenders.length>0?'#f6ffed':'#fff1f0', border:`1px solid ${tenders.length>0?'#b7eb8f':'#ffa39e'}` }}>
+//               <div style={{ fontSize:12 }}>
+//                 <FileDoneOutlined style={{ marginRight:6, color:tenders.length>0?'#52c41a':'#ff4d4f' }}/>
+//                 <Text strong style={{ color:tenders.length>0?'#52c41a':'#ff4d4f' }}>
+//                   {tenders.length} tender{tenders.length!==1?'s':''} available
+//                 </Text>
+//               </div>
+//             </Card>
+//           </Col>
+//         </Row>
+
+//         {stats.overdue>0&&(
+//           <Alert message={`${stats.overdue} Purchase Order${stats.overdue!==1?'s':''} Overdue`}
+//             type="error" showIcon style={{ marginBottom:16 }}
+//             action={<Button size="small" danger onClick={()=>setActiveTab('overdue')}>View Overdue</Button>}
+//           />
+//         )}
+
+//         <Tabs activeKey={activeTab} onChange={setActiveTab}
+//           items={[
+//             { key:'all',       label:`All (${stats.total})` },
+//             { key:'active',    label:`Active (${stats.active})` },
+//             { key:'overdue',   label:<Badge count={stats.overdue} size="small"><span style={{ paddingRight:stats.overdue>0?16:0 }}>Overdue</span></Badge> },
+//             { key:'delivered', label:'Delivered' }
+//           ]}
+//         />
+//         <Table columns={columns} dataSource={getFilteredPOs()} rowKey="id"
+//           loading={loading} pagination={{ pageSize:10 }} scroll={{ x:'max-content' }}
+//         />
+//       </Card>
+
+//       {/* ══════════════════════════════════════════
+//           PATH CHOICE MODAL
+//       ══════════════════════════════════════════ */}
+//       <Modal
+//         title={<Space><PlusOutlined/>Create New Purchase Order</Space>}
+//         open={pathChoiceVisible}
+//         onCancel={()=>setPathChoiceVisible(false)}
+//         footer={null}
+//         width={600}
+//       >
+//         <Paragraph style={{ color:'#666', marginBottom:24 }}>
+//           How would you like to proceed?
+//         </Paragraph>
+//         <Row gutter={16}>
+//           <Col span={12}>
+//             <Card
+//               hoverable
+//               style={{ textAlign:'center', border:'2px solid #91caff', cursor:'pointer' }}
+//               onClick={()=>openCreateModal('withTender')}
+//             >
+//               <FileDoneOutlined style={{ fontSize:36, color:'#1890ff', marginBottom:12 }}/>
+//               <div><Text strong style={{ fontSize:15 }}>Create with Tender</Text></div>
+//               <div style={{ marginTop:8 }}>
+//                 <Text type="secondary" style={{ fontSize:12 }}>
+//                   Standard path — links this PO to an approved or awarded tender.
+//                 </Text>
+//               </div>
+//               {tenders.length > 0
+//                 ? <Tag color="green" style={{ marginTop:12 }}>{tenders.length} tender{tenders.length!==1?'s':''} available</Tag>
+//                 : <Tag color="orange" style={{ marginTop:12 }}>No approved tenders yet</Tag>
+//               }
+//             </Card>
+//           </Col>
+//           <Col span={12}>
+//             <Card
+//               hoverable
+//               style={{ textAlign:'center', border:'2px solid #ffd591', cursor:'pointer' }}
+//               onClick={()=>openCreateModal('withoutTender')}
+//             >
+//               <ExceptionOutlined style={{ fontSize:36, color:'#fa8c16', marginBottom:12 }}/>
+//               <div><Text strong style={{ fontSize:15 }}>Create without Tender</Text></div>
+//               <div style={{ marginTop:8 }}>
+//                 <Text type="secondary" style={{ fontSize:12 }}>
+//                   Special case — requires a manually-signed justification document and a reason.
+//                 </Text>
+//               </div>
+//               <Tag color="orange" style={{ marginTop:12 }}>Justification required</Tag>
+//             </Card>
+//           </Col>
+//         </Row>
+//       </Modal>
+
+//       {/* ══════════════════════════════════════════
+//           CREATE PO MODAL
+//       ══════════════════════════════════════════ */}
+//       <Modal
+//         title={
+//           <Space>
+//             <PlusOutlined/>
+//             {poCreationPath==='withTender' ? (
+//               <><span>Create PO</span><Tag color="blue" icon={<FileDoneOutlined/>}>With Tender</Tag></>
+//             ) : (
+//               <><span>Create PO</span><Tag color="orange" icon={<ExceptionOutlined/>}>Special Case — Justification Required</Tag></>
+//             )}
+//           </Space>
+//         }
+//         open={createModalVisible}
+//         onOk={handleCreatePO}
+//         onCancel={()=>{
+//           setCreateModalVisible(false);
+//           setSelectedTenderId(null);
+//           setTenderError(false);
+//           setIsExternalSupplier(false);
+//           setJustificationFile([]);
+//           createForm.resetFields();
+//         }}
+//         confirmLoading={loading}
+//         width={1100}
+//         maskClosable={false}
+//         style={{ top:20 }}
+//         styles={{ body:{ maxHeight:'82vh', overflowY:'auto' } }}
+//         destroyOnClose
+//       >
+//         {/* <Form form={createForm} layout="vertical" initialValues={{ currency:'XAF', taxApplicable:false, taxRate:19.25, items:[{}] }}> */}
+
+//         <Form form={createForm} layout="vertical" initialValues={{ currency:'XAF', taxApplicable:false, taxRate:null, items:[{}] }}>
+//           {/* ── Path A: Tender selection ── */}
+//           {poCreationPath === 'withTender' && (
+//             <TenderSelectionBlock
+//               tenders={tenders}
+//               loading={tendersLoading}
+//               selectedId={selectedTenderId}
+//               onSelect={(v)=>{ setSelectedTenderId(v); setTenderError(false); }}
+//               error={tenderError}
+//             />
+//           )}
+
+//           {/* ── Path B: Justification ── */}
+//           {poCreationPath === 'withoutTender' && (
+//             <JustificationBlock
+//               form={createForm}
+//               fileList={justificationFile}
+//               onFileChange={({ fileList }) => setJustificationFile(fileList.slice(-1))}
+//             />
+//           )}
+
+//           {/* ── Supplier ── */}
+//           <Divider orientation="left">Supplier</Divider>
+//           <Row gutter={16}>
+//             <Col span={12}>
+//               <Form.Item name="supplierType" label="Supplier Type" initialValue="registered" rules={[{required:true}]}>
+//                 <Select onChange={v=>{ setIsExternalSupplier(v==='external'); createForm.setFieldsValue({ supplierId:undefined }); }}>
+//                   <Option value="registered">Registered Supplier</Option>
+//                   <Option value="external">External / New Supplier</Option>
+//                 </Select>
+//               </Form.Item>
+//             </Col>
+//             <Col span={12}>
+//               <Form.Item name="currency" label="Currency" initialValue="XAF" rules={[{required:true}]}>
+//                 <Select>
+//                   <Option value="XAF">XAF (Central African Franc)</Option>
+//                   <Option value="USD">USD</Option>
+//                   <Option value="EUR">EUR</Option>
+//                 </Select>
+//               </Form.Item>
+//             </Col>
+//           </Row>
+
+//           {!isExternalSupplier ? (
+//             <Form.Item name="supplierId" label="Select Registered Supplier" rules={[{required:!isExternalSupplier,message:'Please select a supplier'}]}>
+//               <Select placeholder="Search supplier" showSearch optionLabelProp="label"
+//                 filterOption={(input,opt)=>{
+//                   const s=suppliers.find(s=>s._id===opt.value);
+//                   if(!s)return false;
+//                   return `${s.supplierDetails?.companyName||''} ${s.email||''}`.toLowerCase().includes(input.toLowerCase());
+//                 }}>
+//                 {suppliers.map(s=>(
+//                   <Option key={s._id} value={s._id} label={s.supplierDetails?.companyName||s.email}>
+//                     <div><Text strong>{s.supplierDetails?.companyName||'Unnamed'}</Text><br/>
+//                       <Text type="secondary" style={{ fontSize:11 }}>{s.email}</Text></div>
+//                   </Option>
+//                 ))}
+//               </Select>
+//             </Form.Item>
+//           ) : (
+//             <Row gutter={16}>
+//               <Col span={12}><Form.Item name="externalSupplierName"    label="Supplier Name"  rules={[{required:true}]}><Input/></Form.Item></Col>
+//               <Col span={12}><Form.Item name="externalSupplierEmail"   label="Email"          rules={[{required:true},{type:'email'}]}><Input/></Form.Item></Col>
+//               <Col span={12}><Form.Item name="externalSupplierPhone"   label="Phone"><Input/></Form.Item></Col>
+//               <Col span={12}><Form.Item name="externalSupplierAddress" label="Address"><Input/></Form.Item></Col>
+//             </Row>
+//           )}
+
+//           {/* ── Items ── */}
+//           <Divider orientation="left">Items</Divider>
+//           <ItemsFormList formInstance={createForm}/>
+
+//           {/* ── Delivery & Payment ── */}
+//           <Divider orientation="left">Delivery &amp; Payment</Divider>
+//           <Row gutter={16}>
+//             <Col span={8}>
+//               <Form.Item name="expectedDeliveryDate" label="Expected Delivery Date"
+//                 initialValue={moment().add(14,'days')} rules={[{required:true}]}>
+//                 <DatePicker style={{ width:'100%' }} disabledDate={c=>c&&c<moment().startOf('day')}/>
+//               </Form.Item>
+//             </Col>
+//             <Col span={8}>
+//               <Form.Item name="paymentTerms" label="Payment Terms" rules={[{required:true}]}>
+//                 <Select placeholder="Select payment terms">
+//                   {['15 days','30 days','45 days','60 days','Cash on delivery','Advance payment'].map(t=><Option key={t} value={t}>{t}</Option>)}
+//                 </Select>
+//               </Form.Item>
+//             </Col>
+//             {/* ─── NEW: Budget Code in the 3rd column ─────────────────────────── */}
+//             <Col span={8}>
+//               <BudgetCodeSelect/>
+//             </Col>
+//           </Row>
+
+//           <Form.Item name="deliveryAddress" label="Delivery Address" rules={[{required:true}]}>
+//             <TextArea rows={2} placeholder="Full delivery address…"/>
+//           </Form.Item>
+//           <Form.Item name="specialInstructions" label="Special Instructions">
+//             <TextArea rows={2} placeholder="Special instructions for the supplier…"/>
+//           </Form.Item>
+
+//           {/* ─── NEW: Tax Configuration ──────────────────────────────────────── */}
+//           <TaxConfigBlock/>
+
+//           <Form.Item name="notes" label="Internal Notes">
+//             <TextArea rows={2} placeholder="Internal notes (not sent to supplier)…"/>
+//           </Form.Item>
+//         </Form>
+//       </Modal>
+
+//       {/* ══ EDIT PO MODAL ══ */}
+//       <Modal
+//         title={`Edit PO — ${selectedPO?.poNumber}`}
+//         open={editModalVisible}
+//         onOk={handleUpdatePO}
+//         onCancel={()=>{ setEditModalVisible(false); editForm.resetFields(); }}
+//         confirmLoading={loading} width={1000} destroyOnClose
+//       >
+//         <Form form={editForm} layout="vertical">
+//           <Alert
+//             message="Edit Purchase Order"
+//             description={`Status: ${selectedPO?.status}. You can edit all order details except supplier information.`}
+//             type="info" showIcon style={{ marginBottom:24 }}
+//           />
+
+//           <Divider orientation="left">Order Details</Divider>
+//           <Row gutter={16}>
+//             <Col span={8}>
+//               <Form.Item name="expectedDeliveryDate" label="Expected Delivery Date" rules={[{required:true}]}>
+//                 <DatePicker style={{ width:'100%' }} disabledDate={c=>c&&c<moment().startOf('day')}/>
+//               </Form.Item>
+//             </Col>
+//             <Col span={8}>
+//               <Form.Item name="paymentTerms" label="Payment Terms" rules={[{required:true}]}>
+//                 <Select>
+//                   {['15 days','30 days','45 days','60 days','Cash on delivery','Advance payment'].map(t=><Option key={t} value={t}>{t}</Option>)}
+//                 </Select>
+//               </Form.Item>
+//             </Col>
+//             <Col span={8}>
+//               <Form.Item name="currency" label="Currency" rules={[{required:true}]}>
+//                 <Select>
+//                   <Option value="XAF">XAF (Central African Franc)</Option>
+//                   <Option value="USD">USD</Option>
+//                   <Option value="EUR">EUR</Option>
+//                 </Select>
+//               </Form.Item>
+//             </Col>
+//           </Row>
+
+//           <Form.Item name="deliveryAddress" label="Delivery Address" rules={[{required:true}]}>
+//             <TextArea rows={2}/>
+//           </Form.Item>
+
+//           <Divider orientation="left">Items</Divider>
+//           <Form.List name="items">
+//             {(fields,{add,remove})=>(
+//               <>
+//                 {fields.map(({key,name,...rest})=>(
+//                   <Card key={key} size="small" style={{ marginBottom:10 }} title={`Item ${name+1}`}
+//                     extra={fields.length>1?<Button size="small" danger icon={<DeleteOutlined/>} onClick={()=>remove(name)}>Remove</Button>:null}>
+//                     <Row gutter={16}>
+//                       <Col span={12}><Form.Item {...rest} name={[name,'description']} label="Description" rules={[{required:true}]}><Input/></Form.Item></Col>
+//                       <Col span={6}><Form.Item {...rest} name={[name,'quantity']} label="Quantity" rules={[{required:true}]}><InputNumber min={1} style={{ width:'100%' }}/></Form.Item></Col>
+//                       <Col span={6}><Form.Item {...rest} name={[name,'unitPrice']} label="Unit Price" rules={[{required:true}]}><InputNumber min={0} style={{ width:'100%' }} formatter={v=>`${v}`.replace(/\B(?=(\d{3})+(?!\d))/g,',')} parser={v=>v.replace(/,/g,'')}/></Form.Item></Col>
+//                     </Row>
+//                     <Row gutter={16}>
+//                       <Col span={12}>
+//                         <Form.Item {...rest} name={[name,'unitOfMeasure']} label="Unit of Measure">
+//                           <Select placeholder="Select unit" allowClear>
+//                             {['Pieces','Sets','Boxes','Packs','Units','Each','Kg','Litres','Meters'].map(u=><Option key={u} value={u}>{u}</Option>)}
+//                           </Select>
+//                         </Form.Item>
+//                       </Col>
+//                       <Col span={12}>
+//                         <Form.Item {...rest} name={[name,'specifications']} label="Specifications">
+//                           <Input placeholder="Optional"/>
+//                         </Form.Item>
+//                       </Col>
+//                     </Row>
+//                     <Form.Item {...rest} name={[name,'itemId']} hidden><Input/></Form.Item>
+//                   </Card>
+//                 ))}
+//                 <Button type="dashed" onClick={()=>add()} block icon={<PlusOutlined/>}>Add Item</Button>
+//               </>
+//             )}
+//           </Form.List>
+
+//           {/* ─── NEW: Tax Configuration in Edit modal ──────────────────────── */}
+//           <TaxConfigBlock/>
+
+//           <Divider orientation="left">Additional Information</Divider>
+//           <Form.Item name="specialInstructions" label="Special Instructions"><TextArea rows={2}/></Form.Item>
+//           <Form.Item name="notes" label="Internal Notes"><TextArea rows={2}/></Form.Item>
+
+//           <Alert
+//             message="Important Note"
+//             description="Changes to items will recalculate the total amount. Tax is applied on top of the subtotal when enabled."
+//             type="warning" showIcon style={{ marginTop:16 }}
+//           />
+//         </Form>
+//       </Modal>
+
+//       {/* ══ SEND TO SUPPLIER MODAL ══ */}
+//       <Modal
+//         title={`Send PO to Supplier — ${selectedPO?.poNumber}`}
+//         open={sendModalVisible}
+//         onOk={handleSendPOToSupplier}
+//         onCancel={()=>setSendModalVisible(false)}
+//         confirmLoading={loading} width={560}
+//       >
+//         <Alert message={`Will be emailed to ${selectedPO?.supplierName} at ${selectedPO?.supplierEmail}`} type="info" showIcon style={{ marginBottom:16 }}/>
+//         <Form form={sendForm} layout="vertical">
+//           <Form.Item name="message" label="Additional Message (Optional)">
+//             <TextArea rows={4} maxLength={1000} showCount/>
+//           </Form.Item>
+//         </Form>
+//       </Modal>
+
+//       {/* ══ EMAIL PDF MODAL ══ */}
+//       <Modal
+//         title={<Space><ShareAltOutlined/>Email PDF — {selectedPO?.poNumber}</Space>}
+//         open={emailPDFModalVisible}
+//         onOk={handleSendEmailPDF}
+//         onCancel={()=>setEmailPDFModalVisible(false)}
+//         confirmLoading={pdfLoading} width={560}
+//       >
+//         <Form form={emailPDFForm} layout="vertical">
+//           <Form.Item name="emailTo" label="Recipient Email" rules={[{required:true},{type:'email'}]}>
+//             <Input prefix={<MailOutlined/>} placeholder="recipient@email.com"/>
+//           </Form.Item>
+//           <Form.Item name="message" label="Message (Optional)">
+//             <TextArea rows={3} maxLength={1000} showCount/>
+//           </Form.Item>
+//         </Form>
+//       </Modal>
+
+//       {/* ══ DETAIL DRAWER ══ */}
+//       <Drawer
+//         title={<Space><FileTextOutlined/>PO Details — {selectedPO?.poNumber}</Space>}
+//         placement="right" width={860}
+//         open={detailDrawerVisible}
+//         onClose={()=>setDetailDrawerVisible(false)}
+//       >
+//         {selectedPO && (
+//           <div>
+//             {selectedPO.createdWithoutTender && selectedPO.tenderJustification && (
+//               <Alert
+//                 style={{ marginBottom:12 }}
+//                 type="warning"
+//                 showIcon
+//                 icon={<ExceptionOutlined/>}
+//                 message="Created Without Tender — Justification on File"
+//                 description={
+//                   <div>
+//                     <div><Text strong>Document: </Text>{selectedPO.tenderJustification.documentName}</div>
+//                     <div style={{ marginTop:4 }}><Text strong>Reason: </Text>{selectedPO.tenderJustification.justificationNote}</div>
+//                     {selectedPO.tenderJustification.signedDocument?.url && (
+//                       <div style={{ marginTop:6 }}>
+//                         <Button size="small" icon={<DownloadOutlined/>} type="link"
+//                           onClick={()=>window.open(selectedPO.tenderJustification.signedDocument.url,'_blank')}>
+//                           View Signed Document
+//                         </Button>
+//                       </div>
+//                     )}
+//                   </div>
+//                 }
+//               />
+//             )}
+
+//             <Card size="small" style={{ marginBottom:12 }}>
+//               <Descriptions column={2} size="small">
+//                 <Descriptions.Item label="PO Number"><Text code strong>{selectedPO.poNumber}</Text></Descriptions.Item>
+//                 <Descriptions.Item label="Status">{getStatusTag(selectedPO.status)}</Descriptions.Item>
+//                 <Descriptions.Item label="Supplier">{selectedPO.supplierName}</Descriptions.Item>
+//                 <Descriptions.Item label="Email">{selectedPO.supplierEmail}</Descriptions.Item>
+//                 <Descriptions.Item label="Amount">
+//                   <Text strong style={{ color:'#1890ff', fontSize:16 }}>
+//                     {selectedPO.currency} {selectedPO.totalAmount?.toLocaleString()}
+//                   </Text>
+//                 </Descriptions.Item>
+//                 <Descriptions.Item label="Payment Terms">{selectedPO.paymentTerms}</Descriptions.Item>
+//                 <Descriptions.Item label="Delivery">{selectedPO.deliveryAddress}</Descriptions.Item>
+//                 <Descriptions.Item label="Expected">{selectedPO.expectedDeliveryDate?moment(selectedPO.expectedDeliveryDate).format('DD MMM YYYY'):'—'}</Descriptions.Item>
+//                 {/* ─── NEW: tax info in drawer ──────────────────────────────── */}
+//                 {selectedPO.taxApplicable && (
+//                   <>
+//                     <Descriptions.Item label="Tax Rate">{selectedPO.taxRate}%</Descriptions.Item>
+//                     <Descriptions.Item label="Tax Amount">
+//                       {selectedPO.currency} {selectedPO.taxAmount?.toLocaleString() || '—'}
+//                     </Descriptions.Item>
+//                   </>
+//                 )}
+//                 {selectedPO.tenderNumber&&(
+//                   <Descriptions.Item label="Linked Tender" span={2}>
+//                     <Tag color="purple" icon={<FileDoneOutlined/>}>{selectedPO.tenderNumber}</Tag>
+//                   </Descriptions.Item>
+//                 )}
+//               </Descriptions>
+//             </Card>
+
+//             <Card size="small" title="Order Progress" style={{ marginBottom:12 }}>
+//               <Steps current={STAGE_IDX[selectedPO.currentStage]||0} size="small">
+//                 {STAGE_LABELS.map((s,i)=><Steps.Step key={i} title={s}/>)}
+//               </Steps>
+//               <Progress percent={selectedPO.progress||0} status={selectedPO.status==='cancelled'?'exception':'active'} style={{ marginTop:12 }}/>
+//             </Card>
+
+//             <Card size="small" title="Items" style={{ marginBottom:12 }}>
+//               <Table size="small" pagination={false} dataSource={selectedPO.items||[]} rowKey="description"
+//                 columns={[
+//                   { title:'Description', dataIndex:'description', key:'d' },
+//                   { title:'Qty',  dataIndex:'quantity',   key:'q', width:60, align:'center' },
+//                   { title:'Unit', dataIndex:'unitPrice',  key:'u', width:110, align:'right', render:v=>(v||0).toLocaleString() },
+//                   { title:'Total',dataIndex:'totalPrice', key:'t', width:120, align:'right', render:v=><Text strong>{(v||0).toLocaleString()}</Text> }
+//                 ]}
+//                 summary={data=>{
+//                   const subtotal = data.reduce((s,i)=>s+(i.totalPrice||0),0);
+//                   const taxAmt   = selectedPO.taxApplicable && selectedPO.taxRate
+//                     ? subtotal * (selectedPO.taxRate/100) : 0;
+//                   const total    = subtotal + taxAmt;
+//                   return (
+//                     <>
+//                       {selectedPO.taxApplicable && (
+//                         <>
+//                           <Table.Summary.Row>
+//                             <Table.Summary.Cell index={0} colSpan={3}><Text>Subtotal</Text></Table.Summary.Cell>
+//                             <Table.Summary.Cell index={3} align="right"><Text>{subtotal.toLocaleString()}</Text></Table.Summary.Cell>
+//                           </Table.Summary.Row>
+//                           <Table.Summary.Row>
+//                             <Table.Summary.Cell index={0} colSpan={3}><Text>Tax ({selectedPO.taxRate}%)</Text></Table.Summary.Cell>
+//                             <Table.Summary.Cell index={3} align="right"><Text>{taxAmt.toLocaleString()}</Text></Table.Summary.Cell>
+//                           </Table.Summary.Row>
+//                         </>
+//                       )}
+//                       <Table.Summary.Row>
+//                         <Table.Summary.Cell index={0} colSpan={3}><Text strong>Total</Text></Table.Summary.Cell>
+//                         <Table.Summary.Cell index={3} align="right">
+//                           <Text strong style={{ color:'#1890ff', fontSize:14 }}>{total.toLocaleString()}</Text>
+//                         </Table.Summary.Cell>
+//                       </Table.Summary.Row>
+//                     </>
+//                   );
+//                 }}
+//               />
+//             </Card>
+
+//             <Space wrap>
+//               {selectedPO.status==='draft'&&<Button type="primary" icon={<SendOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleSendToSupplyChain(selectedPO); }}>Send to Supply Chain</Button>}
+//               {selectedPO.status==='approved'&&<Button type="primary" icon={<SendOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleSendPO(selectedPO); }}>Send to Supplier</Button>}
+//               {!['delivered','completed','cancelled','pending_supply_chain_assignment'].includes(selectedPO.status)&&(
+//                 <Button icon={<EditOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleEditPO(selectedPO); }}>Edit PO</Button>
+//               )}
+//               <Button icon={<DownloadOutlined/>} loading={pdfLoading} onClick={()=>handleDownloadPDF(selectedPO)}>Download PDF</Button>
+//               <Button icon={<ShareAltOutlined/>} onClick={()=>handleEmailPDF(selectedPO)}>Email PDF</Button>
+//             </Space>
+//           </div>
+//         )}
+//       </Drawer>
+//     </div>
+//   );
+// };
+
+// export default BuyerPurchaseOrders;
 
 
 

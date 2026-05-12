@@ -231,6 +231,11 @@ import CommunicationAnalytics from './pages/admin/CommunicationAnalytics';
 import CommunicationTemplates from './pages/admin/CommunicationTemplates';
 import CommunicationDetail from './pages/admin/CommunicationDetail';
 
+// ── Communications ────────────────────────────────────────────────────────────
+// import CommunicationDetail from './pages/CEO/CEOAvailabilitySettings';
+import CEOAvailabilitySettings from './pages/CEO/CEOAvailabilitySettings';
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // EnhancedProtectedRoute
 // Wraps ProtectedRoute with optional role-based access control.
@@ -244,10 +249,11 @@ const EnhancedProtectedRoute = ({ children, allowedRoles, fallbackRole = null })
   if (allowedRoles && allowedRoles.length > 0) {
     const hasDirectAccess = allowedRoles.includes(userRole);
     const isAdmin = userRole === 'admin';
+    const isCEO   = userRole === 'ceo';
     const isAdminRestricted = allowedRoles.includes('admin-restricted');
 
-    // Admin bypasses all role checks unless route is explicitly admin-restricted
-    if (isAdmin && !isAdminRestricted) {
+    // CEO and Admin bypass all role checks unless the route is admin-restricted
+    if ((isAdmin || isCEO) && !isAdminRestricted) {
       return <ProtectedRoute>{children}</ProtectedRoute>;
     }
 
@@ -463,7 +469,7 @@ const AppRoutes = () => {
         <Route path="/supervisor" element={
           <EnhancedProtectedRoute allowedRoles={[
             'supervisor','finance','hr','it','supply_chain',
-            'project','buyer','admin','technical','manager','hse'
+            'project','buyer','admin','technical','manager','hse', 'ceo'
           ]}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
@@ -539,7 +545,7 @@ const AppRoutes = () => {
 
         {/* ── BUYER ───────────────────────────────────────────────────────── */}
         <Route path="/buyer" element={
-          <EnhancedProtectedRoute allowedRoles={['buyer','supply_chain','admin']}>
+          <EnhancedProtectedRoute allowedRoles={['buyer','supply_chain','admin', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -607,7 +613,7 @@ const AppRoutes = () => {
 
         {/* ── SUPPLY CHAIN ────────────────────────────────────────────────── */}
         <Route path="/supply-chain" element={
-          <EnhancedProtectedRoute allowedRoles={['supply_chain','project','buyer','admin','finance']}>
+          <EnhancedProtectedRoute allowedRoles={['supply_chain','project','buyer','admin','finance', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -665,7 +671,7 @@ const AppRoutes = () => {
 
         {/* ── PROJECT ROLE ─────────────────────────────────────────────────── */}
         <Route path="/project" element={
-          <EnhancedProtectedRoute allowedRoles={['project','admin']}>
+          <EnhancedProtectedRoute allowedRoles={['project','admin', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -687,7 +693,7 @@ const AppRoutes = () => {
 
         {/* ── FINANCE ─────────────────────────────────────────────────────── */}
         <Route path="/finance" element={
-          <EnhancedProtectedRoute allowedRoles={['finance','admin']}>
+          <EnhancedProtectedRoute allowedRoles={['finance','admin', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -764,7 +770,7 @@ const AppRoutes = () => {
 
         {/* ── LEGAL & COMPLIANCE ──────────────────────────────────────────── */}
         <Route path="/legal" element={
-          <EnhancedProtectedRoute allowedRoles={['legal','finance','admin']}>
+          <EnhancedProtectedRoute allowedRoles={['legal','finance','admin', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -781,7 +787,7 @@ const AppRoutes = () => {
 
         {/* ── HR ──────────────────────────────────────────────────────────── */}
         <Route path="/hr" element={
-          <EnhancedProtectedRoute allowedRoles={['hr','admin']}>
+          <EnhancedProtectedRoute allowedRoles={['hr','admin', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -832,7 +838,7 @@ const AppRoutes = () => {
 
         {/* ── IT ──────────────────────────────────────────────────────────── */}
         <Route path="/it" element={
-          <EnhancedProtectedRoute allowedRoles={['it','admin']}>
+          <EnhancedProtectedRoute allowedRoles={['it','admin', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -849,7 +855,7 @@ const AppRoutes = () => {
 
         {/* ── HSE ─────────────────────────────────────────────────────────── */}
         <Route path="/hse" element={
-          <EnhancedProtectedRoute allowedRoles={['hse','admin']}>
+          <EnhancedProtectedRoute allowedRoles={['hse','admin', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -861,7 +867,7 @@ const AppRoutes = () => {
 
         {/* ── ADMIN ───────────────────────────────────────────────────────── */}
         <Route path="/admin" element={
-          <EnhancedProtectedRoute allowedRoles={['admin']}>
+          <EnhancedProtectedRoute allowedRoles={['admin', 'ceo']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
@@ -960,38 +966,53 @@ const AppRoutes = () => {
 
         {/* ── CEO ─────────────────────────────────────────────────────────── */}
         <Route path="/ceo" element={
-          <EnhancedProtectedRoute allowedRoles={['admin']} fallbackRole="admin">
+          <EnhancedProtectedRoute allowedRoles={['ceo', 'admin']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
-          <Route path="dashboard"                          element={<Dashboard />} />
-          <Route path="reports"                            element={<AdminAnalyticsDashboard />} />
-          <Route path="company-reports"                    element={<FinanceReports />} />
-          <Route path="analytics"                          element={<AdminAnalyticsDashboard />} />
-          <Route path="financial-overview"                 element={<FinanceDashboard />} />
-          <Route path="performance"                        element={<AdminAnalyticsDashboard />} />
-          <Route path="cash-overview"                      element={<FinanceCashApprovals />} />
-          <Route path="cash-analytics"                     element={<AdminAnalyticsDashboard />} />
-          <Route path="procurement-overview"               element={<SupplyChainDashboard />} />
-          <Route path="procurement-reports"                element={<SupplyChainAnalytics />} />
-          <Route path="budget-analytics"                   element={<BudgetAnalytics />} />
-          <Route path="project-overview"                   element={<SupplyChainProjectManagement />} />
-          <Route path="projects"                           element={<SupplyChainProjectManagement />} />
-          <Route path="projects/:projectId"                element={<RequestDetails />} />
-          <Route path="strategic-reports"                  element={<AdminAnalyticsDashboard />} />
-          <Route path="invoice-overview"                   element={<FinanceInvoiceManagement />} />
-          <Route path="financial-reports"                  element={<FinanceReports />} />
-          <Route path="payment-analytics"                  element={<InvoiceAnalytics />} />
-          <Route path="supplier-overview"                  element={<AdminSupplierManagement />} />
-          <Route path="supplier-performance"               element={<SupplierPerformanceDashboard />} />
-          <Route path="contract-analytics"                 element={<SupplyChainContracts />} />
-          <Route path="tasks-overview"                     element={<ActionItemsManagement />} />
-          <Route path="company-kpis"                       element={<SupervisorKPIApprovals />} />
-          <Route path="performance-reports"                element={<AdminAnalyticsDashboard />} />
-          <Route path="employee-overview"                  element={<EmployeeManagement />} />
-          <Route path="hr-analytics"                       element={<HRDashboard />} />
-          <Route path="system-overview"                    element={<AdminAnalyticsDashboard />} />
-          <Route path="audit-logs"                         element={<AdminSystemSettings />} />
+          {/* Dashboard — standard module-card view with CEO role config */}
+          <Route index                                   element={<Navigate to="/ceo/dashboard" replace />} />
+          <Route path="dashboard"                        element={<Dashboard />} />
+ 
+          {/* Strategic Overview */}
+          <Route path="overview"                         element={<AdminAnalyticsDashboard />} />
+          <Route path="reports"                          element={<AdminAnalyticsDashboard />} />
+          <Route path="analytics"                        element={<AdminAnalyticsDashboard />} />
+          <Route path="company-reports"                  element={<FinanceReports />} />
+ 
+          {/* Financial */}
+          <Route path="cash-overview"                    element={<FinanceCashApprovals />} />
+          <Route path="financial-overview"               element={<FinanceDashboard />} />
+          <Route path="financial-reports"                element={<FinanceReports />} />
+          <Route path="budget-analytics"                 element={<BudgetAnalytics />} />
+          <Route path="payment-analytics"                element={<InvoiceAnalytics />} />
+          <Route path="invoice-overview"                 element={<FinanceInvoiceManagement />} />
+ 
+          {/* Procurement & Supply Chain */}
+          <Route path="procurement-overview"             element={<SupplyChainDashboard />} />
+          <Route path="procurement-reports"              element={<SupplyChainAnalytics />} />
+          <Route path="supplier-overview"                element={<AdminSupplierManagement />} />
+          <Route path="supplier-performance"             element={<SupplierPerformanceDashboard />} />
+          <Route path="contract-analytics"               element={<SupplyChainContracts />} />
+ 
+          {/* Projects & Performance */}
+          <Route path="project-overview"                 element={<SupplyChainProjectManagement />} />
+          <Route path="projects"                         element={<SupplyChainProjectManagement />} />
+          <Route path="projects/:projectId"              element={<RequestDetails />} />
+          <Route path="strategic-reports"                element={<AdminAnalyticsDashboard />} />
+          <Route path="company-kpis"                     element={<SupervisorKPIApprovals />} />
+          <Route path="performance"                      element={<AdminAnalyticsDashboard />} />
+          <Route path="performance-reports"              element={<AdminAnalyticsDashboard />} />
+ 
+          {/* Operations */}
+          <Route path="tasks-overview"                   element={<ActionItemsManagement />} />
+          <Route path="employee-overview"                element={<EmployeeManagement />} />
+          <Route path="hr-analytics"                     element={<HRDashboard />} />
+ 
+          {/* System & Audit */}
+          <Route path="system-overview"                  element={<AdminAnalyticsDashboard />} />
+          <Route path="audit-logs"                       element={<AdminSystemSettings />} />
+          <Route path="availability-settings"           element={<CEOAvailabilitySettings />} />
         </Route>
 
         {/* ── LEGACY PETTYCASH ────────────────────────────────────────────── */}
@@ -2279,53 +2300,53 @@ export default App;
 
 
 
-//       {/* CEO Routes - Executive Access */}
-//         <Route 
-//           path="/ceo" 
-//           element={
-//             <EnhancedProtectedRoute allowedRoles={['admin']} fallbackRole="admin">
-//               <PettyCashLayout />
-//             </EnhancedProtectedRoute>
-//           }
-//         >
-//           {/* Executive Dashboard */}
-//           <Route path="dashboard" element={<Dashboard />} />
-//           <Route index element={<Navigate to="/ceo/dashboard" replace />} />
+      // {/* CEO Routes - Executive Access */}
+      //   <Route 
+      //     path="/ceo" 
+      //     element={
+      //       <EnhancedProtectedRoute allowedRoles={['admin']} fallbackRole="admin">
+      //         <PettyCashLayout />
+      //       </EnhancedProtectedRoute>
+      //     }
+      //   >
+      //     {/* Executive Dashboard */}
+      //     <Route path="dashboard" element={<Dashboard />} />
+      //     <Route index element={<Navigate to="/ceo/dashboard" replace />} />
           
-//           {/* Strategic Overview */}
-//           <Route path="overview" element={<AdminAnalyticsDashboard />} />
-//           <Route path="reports" element={<AdminAnalyticsDashboard />} />
-//           <Route path="analytics" element={<AdminAnalyticsDashboard />} />
+      //     {/* Strategic Overview */}
+      //     <Route path="overview" element={<AdminAnalyticsDashboard />} />
+      //     <Route path="reports" element={<AdminAnalyticsDashboard />} />
+      //     <Route path="analytics" element={<AdminAnalyticsDashboard />} />
           
-//           {/* Financial Overview */}
-//           <Route path="cash-overview" element={<FinanceCashApprovals />} />
-//           <Route path="financial-overview" element={<FinanceDashboard />} />
-//           <Route path="financial-reports" element={<FinanceReports />} />
-//           <Route path="budget-analytics" element={<BudgetAnalytics />} />
-//           <Route path="payment-analytics" element={<InvoiceAnalytics />} />
+      //     {/* Financial Overview */}
+      //     <Route path="cash-overview" element={<FinanceCashApprovals />} />
+      //     <Route path="financial-overview" element={<FinanceDashboard />} />
+      //     <Route path="financial-reports" element={<FinanceReports />} />
+      //     <Route path="budget-analytics" element={<BudgetAnalytics />} />
+      //     <Route path="payment-analytics" element={<InvoiceAnalytics />} />
           
-//           {/* Procurement & Supply Chain */}
-//           <Route path="procurement-overview" element={<SupplyChainDashboard />} />
-//           <Route path="procurement-reports" element={<SupplyChainAnalytics />} />
-//           <Route path="supplier-overview" element={<AdminSupplierManagement />} />
-//           <Route path="supplier-performance" element={<SupplierPerformanceDashboard />} />
-//           <Route path="contract-analytics" element={<SupplyChainContracts />} />
+      //     {/* Procurement & Supply Chain */}
+      //     <Route path="procurement-overview" element={<SupplyChainDashboard />} />
+      //     <Route path="procurement-reports" element={<SupplyChainAnalytics />} />
+      //     <Route path="supplier-overview" element={<AdminSupplierManagement />} />
+      //     <Route path="supplier-performance" element={<SupplierPerformanceDashboard />} />
+      //     <Route path="contract-analytics" element={<SupplyChainContracts />} />
           
-//           {/* Projects & Performance */}
-//           <Route path="project-overview" element={<SupplyChainProjectManagement />} />
-//           <Route path="projects" element={<SupplyChainProjectManagement />} />
-//           <Route path="strategic-reports" element={<AdminAnalyticsDashboard />} />
-//           <Route path="company-kpis" element={<SupervisorKPIApprovals />} />
-//           <Route path="performance" element={<AdminAnalyticsDashboard />} />
-//           <Route path="performance-reports" element={<AdminAnalyticsDashboard />} />
+      //     {/* Projects & Performance */}
+      //     <Route path="project-overview" element={<SupplyChainProjectManagement />} />
+      //     <Route path="projects" element={<SupplyChainProjectManagement />} />
+      //     <Route path="strategic-reports" element={<AdminAnalyticsDashboard />} />
+      //     <Route path="company-kpis" element={<SupervisorKPIApprovals />} />
+      //     <Route path="performance" element={<AdminAnalyticsDashboard />} />
+      //     <Route path="performance-reports" element={<AdminAnalyticsDashboard />} />
           
-//           {/* Operations */}
-//           <Route path="invoice-overview" element={<FinanceInvoiceManagement />} />
-//           <Route path="tasks-overview" element={<ActionItemsManagement />} />
-//           <Route path="employee-overview" element={<EmployeeManagement />} />
-//           <Route path="hr-analytics" element={<HRDashboard />} />
+      //     {/* Operations */}
+      //     <Route path="invoice-overview" element={<FinanceInvoiceManagement />} />
+      //     <Route path="tasks-overview" element={<ActionItemsManagement />} />
+      //     <Route path="employee-overview" element={<EmployeeManagement />} />
+      //     <Route path="hr-analytics" element={<HRDashboard />} />
           
-//           {/* System & Audit */}
-//           <Route path="system-overview" element={<AdminAnalyticsDashboard />} />
-//           <Route path="audit-logs" element={<AdminSystemSettings />} />
-//         </Route>
+      //     {/* System & Audit */}
+      //     <Route path="system-overview" element={<AdminAnalyticsDashboard />} />
+      //     <Route path="audit-logs" element={<AdminSystemSettings />} />
+      //   </Route>
