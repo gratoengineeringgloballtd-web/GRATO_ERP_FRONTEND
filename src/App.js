@@ -120,6 +120,7 @@ import BudgetTransfersList from './pages/finance/BudgetTransfersList';
 import SalaryPaymentForm from './pages/finance/SalaryPaymentForm';
 import SalaryPaymentList from './pages/finance/SalaryPaymentList';
 import SalaryPaymentDetails from './pages/finance/SalaryPaymentDetails';
+import InvoiceManagementReports from './pages/finance/Invoicemanagementreports';
 
 // ── Legal & Compliance ────────────────────────────────────────────────────────
 import LegalComplianceCenter from './pages/legal/LegalComplianceCenter';
@@ -155,6 +156,10 @@ import SupplierBulkImport from './pages/supply-chain/SupplierBulkImport';
 import ContractDetails from './pages/supply-chain/ContractDetails';
 import ContractForm from './pages/supply-chain/ContractForm';
 import InvoiceContractLinking from './pages/supply-chain/InvoiceContractLinking';
+import InventoryReports from './pages/supply-chain/Inventoryreports';
+import SupplierAnalyticsReport from './pages/supply-chain/SupplierAnalyticsReport';
+import FixedAssetAnalytics from './pages/supply-chain/Fixedassetanalytics';
+import SalaryPaymentReports from './pages/finance/SalaryPaymentReports'
 
 // ── Buyer ─────────────────────────────────────────────────────────────────────
 import BuyerRequisitionPortal from './pages/buyer/BuyerRequisitionPortal';
@@ -183,6 +188,7 @@ import EmployeeProfile from './pages/hr/EmployeeProfile';
 import ContractManagement from './pages/hr/ContractManagement';
 import DocumentManager from './pages/hr/DocumentManager';
 import HRCommunicationsHub from './pages/hr/HRCommunicationsHub';
+import HRReports from './pages/hr/Hrreports';
 
 // ── IT ────────────────────────────────────────────────────────────────────────
 import ITSupportRequests from './pages/it/ITSupportRequests';
@@ -279,6 +285,7 @@ const inventoryRoutes = () => [
   <Route key="inv-4"  path="inventory/item/:itemId"         element={<InventoryItemDetails />} />,
   <Route key="inv-5"  path="inventory/items/:itemId"        element={<InventoryItemDetails />} />,
   <Route key="inv-6"  path="inventory/items/:itemId/audit"  element={<InventoryItemDetails />} />,
+  <Route key="inv-7"  path="inventory/reports"                     element={<InventoryReports />} />,
 ];
 
 const supplierMgmtRoutes = () => [
@@ -643,6 +650,8 @@ const AppRoutes = () => {
           <Route path="fixed-assets"                     element={<FixedAssetRegistry />} />
           <Route path="fixed-assets/register"            element={<AssetRegistrationForm />} />
           <Route path="fixed-assets/:assetTag"           element={<AssetDetailsView />} />
+          <Route path="fixed-assets/analytics"           element={<FixedAssetAnalytics />} />
+
 
           {/* Data migration */}
           <Route path="data-migration"                   element={<DataMigration />} />
@@ -653,6 +662,7 @@ const AppRoutes = () => {
           <Route path="supplier-approvals/statistics"    element={<SupplierApprovals />} />
           <Route path="vendor-onboarding"                element={<SupplyChainVendorOnboarding />} />
           <Route path="suppliers/bulk-import"            element={<SupplierBulkImport />} />
+          <Route path="suppliers/reports"            element={<SupplierAnalyticsReport />} />
 
           {/* Contracts */}
           {contractRoutes()}
@@ -718,6 +728,7 @@ const AppRoutes = () => {
           <Route path="invoice-management"                       element={<FinanceInvoiceApproval />} />
           <Route path="prepare-invoice"                          element={<FinanceInvoicePreparation />} />
           <Route path="invoice-analytics"                        element={<InvoiceAnalytics />} />
+          <Route path="invoice-management/reports"                        element={<InvoiceManagementReports />} />
 
           {/* Payments */}
           <Route path="payments"                                 element={<FinancePaymentProcessing />} />
@@ -766,6 +777,7 @@ const AppRoutes = () => {
           <Route path="salary-payments"                          element={<SalaryPaymentList />} />
           <Route path="salary-payments/new"                      element={<SalaryPaymentForm />} />
           <Route path="salary-payments/:id"                      element={<SalaryPaymentDetails />} />
+          <Route path="salary-payments/reports"                      element={<SalaryPaymentReports />} />
         </Route>
 
         {/* ── LEGAL & COMPLIANCE ──────────────────────────────────────────── */}
@@ -833,7 +845,7 @@ const AppRoutes = () => {
           {communicationsRoutes('hr')}
 
           {/* Reports */}
-          <Route path="reports"                            element={<HRDashboard />} />
+          <Route path="reports"                            element={<HRReports />} />
         </Route>
 
         {/* ── IT ──────────────────────────────────────────────────────────── */}
@@ -1017,12 +1029,12 @@ const AppRoutes = () => {
 
         {/* ── LEGACY PETTYCASH ────────────────────────────────────────────── */}
         <Route path="/pettycash" element={
-          <EnhancedProtectedRoute allowedRoles={['finance']}>
+          <EnhancedProtectedRoute allowedRoles={['finance', 'admin', 'admin']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
-          <Route index                                     element={<PCDashboard />} />
-          <Route path="dashboard"                          element={<PCDashboard />} />
+          <Route index                                     element={<AdminAnalyticsDashboard />} />
+          <Route path="dashboard"                          element={<AdminAnalyticsDashboard />} />
           <Route path="requests"                           element={<PCRequests />} />
           <Route path="requests/new"                       element={<PCRequestForm />} />
           <Route path="requests/:id"                       element={<PCRequestForm editMode />} />

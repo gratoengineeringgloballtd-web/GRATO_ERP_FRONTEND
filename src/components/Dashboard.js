@@ -139,435 +139,6 @@ const Dashboard = () => {
     loadDashboardData();
   }, []);
 
-  // const fetchDashboardStats = async () => {
-  //   try {
-  //     setLoading(true);
-
-  //     const apiCalls = [];
-  //     const callIndex = {};
-  //     const addCall = (key, promise) => {
-  //       callIndex[key] = apiCalls.length;
-  //       apiCalls.push(promise);
-  //     };
-
-  //     const isFinanceAdmin = user?.role === 'finance' || user?.role === 'admin' || user?.role === 'ceo';
-  //     const isSupplyChainAdmin = user?.role === 'supply_chain' || user?.role === 'admin' || user?.role === 'ceo';
-  //     const isSupervisor = user?.role === 'supervisor';
-
-  //     if (isFinanceAdmin) {
-  //       addCall('budgetCodes', api.get('/budget-codes/stats').catch(() => ({ data: { pending: 0, total: 0, revisions: 0, transfers: 0 } })));
-  //     }
-
-  //     addCall('projects', api.get('/projects/dashboard-stats').catch(() => ({ data: { pending: 0, inProgress: 0, completed: 0, total: 0 } })));
-  //     addCall('incidents', api.get('/incident-reports/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     addCall('sharepoint', api.get('/sharepoint/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-
-  //     if (user?.role === 'admin' || user?.role === 'hr' || user?.role === 'ceo') {
-  //       addCall('communications', api.get('/communications/stats/dashboard').catch(() => ({ data: { drafts: 0, scheduled: 0, sent: 0 } })));
-  //     }
-
-  //     // if (isSupervisor) {
-  //     //   addCall('cashRequests', api.get('/cash-requests/supervisor/stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     //   addCall('itSupport', api.get('/it-support/supervisor').catch(() => ({ data: [] })));
-  //     //   addCall('sickLeave', api.get('/sick-leave/supervisor/stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     //   addCall('suggestions', api.get('/suggestions/supervisor/stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     // } else {
-  //     //   addCall('cashRequests', api.get('/cash-requests/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     //   addCall('itSupport', api.get('/it-support/dashboard/stats').catch(() => ({ data: { summary: { pending: 0, total: 0 } } })));
-  //     //   addCall('sickLeave', api.get('/sick-leave/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     //   addCall('suggestions', api.get('/suggestions/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     // }
-
-  //     addCall('cashRequests', api.get('/cash-requests/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-
-  //     if (isSupervisor) {
-  //       addCall('itSupport', api.get('/it-support/supervisor').catch(() => ({ data: [] })));
-  //       addCall('sickLeave', api.get('/sick-leave/supervisor/stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //       addCall('suggestions', api.get('/suggestions/supervisor/stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     } else {
-  //       addCall('itSupport', api.get('/it-support/dashboard/stats').catch(() => ({ data: { summary: { pending: 0, total: 0 } } })));
-  //       addCall('sickLeave', api.get('/sick-leave/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //       addCall('suggestions', api.get('/suggestions/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     }
-
-  //     // addCall('purchaseRequisitions', api.get('/purchase-requisitions/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     addCall('purchaseRequisitions', api.get('/purchase-requisitions/pr-dashboard-stats').catch(() => ({ data: { data: { pending: 0, total: 0 } } })));
-
-
-  //     if (['buyer', 'admin', 'supply_chain', 'ceo'].includes(user?.role)) {
-  //       addCall('buyerDashboard', api.get('/buyer/dashboard').catch(() => ({ data: { success: false, data: { statistics: {}, statusBreakdown: { requisitions: [], quotes: [] } } } })));
-  //     }
-
-  //     if (user?.role === 'buyer') {
-  //       addCall('buyerSuppliers', api.get('/buyer/suppliers?limit=1').catch(() => ({ data: { pagination: { totalRecords: 0 } } })));
-  //       addCall('debitNotes', api.get('/debit-notes/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     }
-
-  //     let invoiceEndpoint = '/invoices/employee';
-  //     if (isFinanceAdmin) {
-  //       invoiceEndpoint = '/invoices/finance';
-  //     } else if (isSupervisor) {
-  //       invoiceEndpoint = '/invoices/supervisor/all';
-  //     } else if (['hr', 'it', 'buyer', 'supply_chain'].includes(user?.role)) {
-  //       invoiceEndpoint = '/invoices/supervisor/pending';
-  //     }
-
-  //     addCall('invoices', api.get(invoiceEndpoint).catch(() => ({ data: { success: false, data: [], count: 0, pagination: { total: 0 } } })));
-
-  //     if (['admin', 'supply_chain', 'finance', 'ceo'].includes(user?.role)) {
-  //       addCall('supplierApprovals', api.get('/suppliers/admin/approvals/statistics').catch(() => ({ data: { pending: 0, pending_supply_chain: 0, pending_head_of_business: 0, pending_finance: 0, approved: 0, rejected: 0, total: 0 } })));
-  //       addCall('contractStats', api.get('/contracts/analytics/statistics').catch(() => ({ data: { overview: { total: 0 } } })));
-  //     }
-
-  //     if (isSupplyChainAdmin) {
-  //       addCall('inventory', api.get('/inventory/dashboard').catch(() => ({ data: { data: { summary: { totalItems: 0, lowStockItems: 0, outOfStockItems: 0, totalStockValue: 0 } } } })));
-  //       addCall('assets', api.get('/fixed-assets/dashboard').catch(() => ({ data: { data: { summary: { totalAssets: 0, inUseAssets: 0, overdueInspections: 0 }, valuation: { totalCurrentValue: 0 } } } })));
-  //       addCall('supplierPerformance', api.get('/supplier-performance/rankings?limit=10').catch(() => ({ data: { data: { rankings: [], summary: { totalSuppliers: 0, averageScore: 0 } } } })));
-  //       addCall('purchaseOrders', api.get('/buyer/purchase-orders/supply-chain/stats').catch(() => ({ data: { pendingAssignment: 0, assignedToday: 0, rejectedToday: 0, inApprovalChain: 0 } })));
-  //     }
-
-  //     addCall('actionItems', api.get('/action-items/stats').catch(() => ({ data: { success: false, data: { total: 0, completed: 0 } } })));
-
-  //     if (isFinanceAdmin) {
-  //       addCall('salaryDashboard', api.get('/salary-payments/dashboard-stats').catch(() => ({ data: { success: false, data: { currentMonth: 0, yearToDate: 0, recentPayments: [] } } })));
-  //       addCall('salaryPayments', api.get('/salary-payments?status=processed').catch(() => ({ data: { success: false, count: 0, data: [] } })));
-  //       addCall('disbursements', api.get('/disbursements/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     }
-
-  //     const responses = await Promise.allSettled(apiCalls);
-  //     const getResponse = (key, fallback) => {
-  //       const idx = callIndex[key];
-  //       if (idx === undefined) return fallback;
-  //       const result = responses[idx];
-  //       if (!result || result.status !== 'fulfilled') return fallback;
-  //       return result.value?.data ?? fallback;
-  //     };
-  //     const unwrapPayload = (payload, fallback) => {
-  //       if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'data')) {
-  //         return payload.data ?? fallback;
-  //       }
-  //       return payload ?? fallback;
-  //     };
-
-  //     const projectStats = unwrapPayload(getResponse('projects', { data: { pending: 0, inProgress: 0, completed: 0, total: 0 } }), { pending: 0, inProgress: 0, completed: 0, total: 0 });
-  //     const incidentStats = unwrapPayload(getResponse('incidents', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const sharepointStats = unwrapPayload(getResponse('sharepoint', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const communicationsData = unwrapPayload(getResponse('communications', { data: { drafts: 0, scheduled: 0, sent: 0 } }), { drafts: 0, scheduled: 0, sent: 0 });
-  //     const communicationsStats = { pending: (communicationsData.drafts || 0) + (communicationsData.scheduled || 0), total: communicationsData.sent || 0 };
-  //     const budgetCodesData = unwrapPayload(getResponse('budgetCodes', { data: { pending: 0, total: 0, revisions: 0, transfers: 0 } }), { pending: 0, total: 0, revisions: 0, transfers: 0 });
-  //     const budgetCodesStats = { pending: budgetCodesData.pending || 0, total: budgetCodesData.total || 0, revisions: budgetCodesData.revisions || 0, transfers: budgetCodesData.transfers || 0 };
-  //     const cashStats = unwrapPayload(getResponse('cashRequests', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const itSupportPayload = getResponse('itSupport', isSupervisor ? [] : { data: { summary: { pending: 0, total: 0 } } });
-  //     const itSupportData = isSupervisor ? itSupportPayload : unwrapPayload(itSupportPayload, { summary: { pending: 0, total: 0 } });
-  //     const itStats = isSupervisor
-  //       ? { pending: (itSupportData || []).filter(r => ['pending_supervisor', 'pending_it_review'].includes(r.status)).length, total: (itSupportData || []).length }
-  //       : itSupportData?.summary || { pending: 0, total: 0 };
-  //     const leaveStats = unwrapPayload(getResponse('sickLeave', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const suggestionsStats = unwrapPayload(getResponse('suggestions', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     // const purchaseRequisitionStats = unwrapPayload(getResponse('purchaseRequisitions', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const purchaseRequisitionStats = (() => {
-  //     const raw = getResponse('purchaseRequisitions', { data: { pending: 0, total: 0 } });
-  //       // /pr-dashboard-stats returns { success, data: { pending, total, ... } }
-  //       if (raw && raw.data && typeof raw.data === 'object' && 'pending' in raw.data) return raw.data;
-  //       // /dashboard-stats returns { success, data: { summary: { pending, total }, ... } }
-  //       if (raw && raw.data && raw.data.summary) return raw.data.summary;
-  //       // fallback: unwrap one level
-  //       return unwrapPayload(raw, { pending: 0, total: 0 });
-  //     })();
-  //     const buyerDashboardData = unwrapPayload(getResponse('buyerDashboard', null), null);
-  //     const buyerStats = buyerDashboardData?.statistics || {};
-  //     const buyerQuoteBreakdown = buyerDashboardData?.statusBreakdown?.quotes || [];
-  //     const getCountByStatus = (items, statuses) => items.reduce((sum, item) => sum + (statuses.includes(item._id) ? item.count : 0), 0);
-  //     const buyerRequisitionsStats = buyerDashboardData
-  //       ? { pending: Math.max((buyerStats.totalAssignedRequisitions || 0) - (buyerStats.inProgressRequisitions || 0) - (buyerStats.completedRequisitions || 0), 0), inProgress: buyerStats.inProgressRequisitions || 0, quotesReceived: getCountByStatus(buyerQuoteBreakdown, ['received', 'clarification_received']), completed: buyerStats.completedRequisitions || 0 }
-  //       : { pending: 0, inProgress: 0, quotesReceived: 0, completed: 0 };
-  //     const quotesStats = buyerDashboardData
-  //       ? { pending: getCountByStatus(buyerQuoteBreakdown, ['received', 'under_review', 'clarification_requested', 'clarification_received']), evaluated: getCountByStatus(buyerQuoteBreakdown, ['evaluated']), selected: getCountByStatus(buyerQuoteBreakdown, ['selected']) }
-  //       : { pending: 0, evaluated: 0, selected: 0 };
-  //     const invoiceData = getResponse('invoices', { data: [], count: 0, pagination: { total: 0 } });
-  //     const invoiceList = Array.isArray(invoiceData.data) ? invoiceData.data : [];
-  //     const invoiceTotal = invoiceData.pagination?.total ?? invoiceData.count ?? invoiceList.length ?? 0;
-  //     const invoicePendingStatuses = ['pending_finance_assignment', 'pending_department_approval'];
-  //     const invoicePending = invoiceEndpoint.includes('/supervisor/pending') ? invoiceTotal : invoiceList.filter(inv => invoicePendingStatuses.includes(inv.approvalStatus)).length;
-  //     const supplierApprovalData = unwrapPayload(getResponse('supplierApprovals', { data: { pending: 0, pending_supply_chain: 0, pending_head_of_business: 0, pending_finance: 0, approved: 0, rejected: 0, total: 0 } }), { pending: 0, pending_supply_chain: 0, pending_head_of_business: 0, pending_finance: 0, approved: 0, rejected: 0, total: 0 });
-  //     const buyerSuppliersPayload = getResponse('buyerSuppliers', { pagination: { totalRecords: 0 } });
-  //     const buyerSuppliersCount = buyerSuppliersPayload?.pagination?.totalRecords ?? 0;
-  //     const approvedSuppliersCount = supplierApprovalData.approved || 0;
-  //     const pendingSuppliersCount = supplierApprovalData.pending || 0;
-  //     const activeSuppliersCount = approvedSuppliersCount > 0 ? approvedSuppliersCount : buyerSuppliersCount;
-  //     const contractStatsData = unwrapPayload(getResponse('contractStats', { data: { overview: { total: 0 } } }), { overview: { total: 0 } });
-  //     const inventoryPayload = getResponse('inventory', { data: { summary: { totalItems: 0, lowStockItems: 0, outOfStockItems: 0, totalStockValue: 0 } } });
-  //     const inventorySummary = inventoryPayload?.data?.summary || inventoryPayload?.summary || { totalItems: 0, lowStockItems: 0, outOfStockItems: 0, totalStockValue: 0 };
-  //     const assetPayload = getResponse('assets', { data: { summary: { totalAssets: 0, inUseAssets: 0, overdueInspections: 0 }, valuation: { totalCurrentValue: 0 } } });
-  //     const assetSummary = assetPayload?.data?.summary || assetPayload?.summary || { totalAssets: 0, inUseAssets: 0, overdueInspections: 0 };
-  //     const assetValuation = assetPayload?.data?.valuation || assetPayload?.valuation || { totalCurrentValue: 0 };
-  //     const supplierPerformancePayload = getResponse('supplierPerformance', { data: { rankings: [], summary: { totalSuppliers: 0, averageScore: 0 } } });
-  //     const supplierPerformanceSummary = supplierPerformancePayload?.data?.summary || supplierPerformancePayload?.summary || { totalSuppliers: 0, averageScore: 0 };
-  //     const supplierPerformanceRankings = supplierPerformancePayload?.data?.rankings || supplierPerformancePayload?.rankings || [];
-  //     const purchaseOrderStats = unwrapPayload(getResponse('purchaseOrders', { data: { pendingAssignment: 0, inApprovalChain: 0 } }), { pendingAssignment: 0, inApprovalChain: 0 });
-  //     const actionItemsPayload = getResponse('actionItems', { data: { total: 0, completed: 0 } });
-  //     const actionItemsStats = unwrapPayload(actionItemsPayload, { total: 0, completed: 0 });
-  //     const actionItemsPending = Math.max((actionItemsStats.total || 0) - (actionItemsStats.completed || 0), 0);
-  //     const salaryDashboardPayload = getResponse('salaryDashboard', { data: { currentMonth: 0, yearToDate: 0, recentPayments: [] } });
-  //     const salaryDashboardData = unwrapPayload(salaryDashboardPayload, { currentMonth: 0, yearToDate: 0, recentPayments: [] });
-  //     const salaryPaymentsData = getResponse('salaryPayments', { count: 0, data: [] });
-  //     const lastPaymentDate = salaryPaymentsData?.data?.[0]?.processedAt || salaryDashboardData?.recentPayments?.[0]?.processedAt || null;
-  //     const debitNotesStats = unwrapPayload(getResponse('debitNotes', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const disbursementsStats = unwrapPayload(getResponse('disbursements', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-
-  //     setStats({
-  //       cashRequests: cashStats,
-  //       invoices: { pending: invoicePending || 0, total: invoiceTotal || 0 },
-  //       incidentReports: incidentStats,
-  //       itSupport: { pending: itStats.pending, total: itStats.total },
-  //       suggestions: { pending: suggestionsStats.pending, total: suggestionsStats.total },
-  //       sickLeave: { pending: leaveStats.pending, total: leaveStats.total },
-  //       purchaseRequisitions: { pending: purchaseRequisitionStats.pending || 0, total: purchaseRequisitionStats.total || 0 },
-  //       buyerRequisitions: buyerRequisitionsStats,
-  //       quotes: quotesStats,
-  //       suppliers: { active: activeSuppliersCount || 0, pending: pendingSuppliersCount || 0, pending_supply_chain: supplierApprovalData.pending_supply_chain || 0, pending_head_of_business: supplierApprovalData.pending_head_of_business || 0, pending_finance: supplierApprovalData.pending_finance || 0 },
-  //       purchaseOrders: { active: purchaseOrderStats.inApprovalChain || 0, pending: purchaseOrderStats.pendingAssignment || 0, delivered: 0 },
-  //       projects: projectStats,
-  //       actionItems: { pending: actionItemsPending, total: actionItemsStats.total || 0 },
-  //       sharepoint: sharepointStats,
-  //       communications: communicationsStats,
-  //       budgetCodes: budgetCodesStats,
-  //       inventory: { totalItems: inventorySummary.totalItems || 0, lowStock: inventorySummary.lowStockItems || 0, outOfStock: inventorySummary.outOfStockItems || 0, totalValue: inventorySummary.totalStockValue || 0 },
-  //       fixedAssets: { totalAssets: assetSummary.totalAssets || 0, inUse: assetSummary.inUseAssets || 0, overdueInspections: assetSummary.overdueInspections || 0, totalValue: assetValuation.totalCurrentValue || 0 },
-  //       supplierPerformance: { totalSuppliers: supplierPerformanceSummary.totalSuppliers || 0, topPerformers: supplierPerformanceRankings.filter(s => s.performanceGrade === 'A').length || 0, averageScore: supplierPerformanceSummary.averageScore || 0 },
-  //       salaryPayments: { currentMonth: salaryDashboardData.currentMonth || 0, yearToDate: salaryDashboardData.yearToDate || 0, totalProcessed: salaryPaymentsData.count || 0, lastPaymentDate },
-  //       contracts: { total: contractStatsData?.overview?.total || 0 },
-  //       dataMigration: { pending: 0, completed: 0, failed: 0, total: 0 },
-  //       debitNotes: { pending: debitNotesStats.pending || 0, total: debitNotesStats.total || 0 },
-  //       disbursements: { pending: disbursementsStats.pending || 0, total: disbursementsStats.total || 0 }
-  //     });
-  //   } catch (error) {
-  //     console.error('Error fetching dashboard stats:', error);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
-
-  // const fetchDashboardStats = async () => {
-  //   try {
-  //     setLoading(true);
-
-  //     const apiCalls = [];
-  //     const callIndex = {};
-  //     const addCall = (key, promise) => {
-  //       callIndex[key] = apiCalls.length;
-  //       apiCalls.push(promise);
-  //     };
-
-  //     const isFinanceAdmin = user?.role === 'finance' || user?.role === 'admin' || user?.role === 'ceo';
-  //     const isSupplyChainAdmin = user?.role === 'supply_chain' || user?.role === 'admin' || user?.role === 'ceo';
-  //     const isSupervisor = user?.role === 'supervisor';
-
-  //     if (isFinanceAdmin) {
-  //       addCall('budgetCodes', api.get('/budget-codes/stats').catch(() => ({ data: { pending: 0, total: 0, revisions: 0, transfers: 0 } })));
-  //     }
-
-  //     addCall('projects', api.get('/projects/dashboard-stats').catch(() => ({ data: { pending: 0, inProgress: 0, completed: 0, total: 0 } })));
-  //     addCall('incidents', api.get('/incident-reports/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     addCall('sharepoint', api.get('/sharepoint/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-
-  //     if (user?.role === 'admin' || user?.role === 'hr' || user?.role === 'ceo') {
-  //       addCall('communications', api.get('/communications/stats/dashboard').catch(() => ({ data: { drafts: 0, scheduled: 0, sent: 0 } })));
-  //     }
-
-  //     if (isSupervisor) {
-  //       addCall('cashRequests', api.get('/cash-requests/supervisor/stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //       addCall('itSupport', api.get('/it-support/supervisor').catch(() => ({ data: [] })));
-  //       addCall('sickLeave', api.get('/sick-leave/supervisor/stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //       addCall('suggestions', api.get('/suggestions/supervisor/stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     } else {
-  //       addCall('cashRequests', api.get('/cash-requests/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //       addCall('itSupport', api.get('/it-support/dashboard/stats').catch(() => ({ data: { summary: { pending: 0, total: 0 } } })));
-  //       addCall('sickLeave', api.get('/sick-leave/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //       addCall('suggestions', api.get('/suggestions/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     }
-
-  //     // ── PURCHASE REQUISITIONS: use the role-aware pr-dashboard-stats endpoint ──
-  //     addCall('purchaseRequisitions', api.get('/purchase-requisitions/pr-dashboard-stats').catch(() => ({ data: { data: { pending: 0, total: 0 } } })));
-
-  //     if (['buyer', 'admin', 'supply_chain', 'ceo'].includes(user?.role)) {
-  //       addCall('buyerDashboard', api.get('/buyer/dashboard').catch(() => ({ data: { success: false, data: { statistics: {}, statusBreakdown: { requisitions: [], quotes: [] } } } })));
-  //     }
-
-  //     if (user?.role === 'buyer') {
-  //       addCall('buyerSuppliers', api.get('/buyer/suppliers?limit=1').catch(() => ({ data: { pagination: { totalRecords: 0 } } })));
-  //       addCall('debitNotes', api.get('/debit-notes/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     }
-
-  //     let invoiceEndpoint = '/invoices/employee';
-  //     if (isFinanceAdmin) {
-  //       invoiceEndpoint = '/invoices/finance';
-  //     } else if (isSupervisor) {
-  //       invoiceEndpoint = '/invoices/supervisor/all';
-  //     } else if (['hr', 'it', 'buyer', 'supply_chain'].includes(user?.role)) {
-  //       invoiceEndpoint = '/invoices/supervisor/pending';
-  //     }
-
-  //     addCall('invoices', api.get(invoiceEndpoint).catch(() => ({ data: { success: false, data: [], count: 0, pagination: { total: 0 } } })));
-
-  //     if (['admin', 'supply_chain', 'finance', 'ceo'].includes(user?.role)) {
-  //       addCall('supplierApprovals', api.get('/suppliers/admin/approvals/statistics').catch(() => ({ data: { pending: 0, pending_supply_chain: 0, pending_head_of_business: 0, pending_finance: 0, approved: 0, rejected: 0, total: 0 } })));
-  //       addCall('contractStats', api.get('/contracts/analytics/statistics').catch(() => ({ data: { overview: { total: 0 } } })));
-  //     }
-
-  //     if (isSupplyChainAdmin) {
-  //       addCall('inventory', api.get('/inventory/dashboard').catch(() => ({ data: { data: { summary: { totalItems: 0, lowStockItems: 0, outOfStockItems: 0, totalStockValue: 0 } } } })));
-  //       addCall('assets', api.get('/fixed-assets/dashboard').catch(() => ({ data: { data: { summary: { totalAssets: 0, inUseAssets: 0, overdueInspections: 0 }, valuation: { totalCurrentValue: 0 } } } })));
-  //       addCall('supplierPerformance', api.get('/supplier-performance/rankings?limit=10').catch(() => ({ data: { data: { rankings: [], summary: { totalSuppliers: 0, averageScore: 0 } } } })));
-  //       // addCall('purchaseOrders', api.get('/buyer/purchase-orders/supply-chain/stats').catch(() => ({ data: { pendingAssignment: 0, assignedToday: 0, rejectedToday: 0, inApprovalChain: 0 } })));
-  //       addCall('purchaseOrders', api.get('/buyer/purchase-orders/supply-chain/stats').catch(() => ({ data: { pendingAssignment: 0, assignedToday: 0, rejectedToday: 0, inApprovalChain: 0 } })));
-  //       }
-
-  //       // Buyer-specific PO counts (all roles — buyers see their own POs)
-  //       if (['buyer', 'admin', 'supply_chain', 'ceo'].includes(user?.role)) {
-  //         addCall('buyerPOStats', api.get('/buyer/purchase-orders').catch(() => ({ data: { data: [], pagination: { totalRecords: 0 } } })));
-  //     }
-
-  //     addCall('actionItems', api.get('/action-items/stats').catch(() => ({ data: { success: false, data: { total: 0, completed: 0 } } })));
-
-  //     if (isFinanceAdmin) {
-  //       addCall('salaryDashboard', api.get('/salary-payments/dashboard-stats').catch(() => ({ data: { success: false, data: { currentMonth: 0, yearToDate: 0, recentPayments: [] } } })));
-  //       addCall('salaryPayments', api.get('/salary-payments?status=processed').catch(() => ({ data: { success: false, count: 0, data: [] } })));
-  //       addCall('disbursements', api.get('/disbursements/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })));
-  //     }
-
-  //     const responses = await Promise.allSettled(apiCalls);
-  //     const getResponse = (key, fallback) => {
-  //       const idx = callIndex[key];
-  //       if (idx === undefined) return fallback;
-  //       const result = responses[idx];
-  //       if (!result || result.status !== 'fulfilled') return fallback;
-  //       return result.value?.data ?? fallback;
-  //     };
-  //     const unwrapPayload = (payload, fallback) => {
-  //       if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'data')) {
-  //         return payload.data ?? fallback;
-  //       }
-  //       return payload ?? fallback;
-  //     };
-
-  //     // ── PURCHASE REQUISITIONS stat extraction ──────────────────────────────
-  //     // /pr-dashboard-stats controller (getPurchaseRequisitionDashboardStats) returns:
-  //     //   { success: true, data: { pending, total, inProgress?, quotesReceived?, completed? } }
-  //     // getResponse already strips the axios wrapper, so raw = { success, data: {...} }
-  //     const purchaseRequisitionStats = (() => {
-  //       const raw = getResponse('purchaseRequisitions', { data: { pending: 0, total: 0 } });
-  //       // Shape 1: { success, data: { pending, total } }  ← getPurchaseRequisitionDashboardStats
-  //       if (raw && raw.data && typeof raw.data === 'object' && 'pending' in raw.data) {
-  //         return raw.data;
-  //       }
-  //       // Shape 2: { success, data: { summary: { pending, total }, ... } }  ← getDashboardStats
-  //       if (raw && raw.data && raw.data.summary) {
-  //         return raw.data.summary;
-  //       }
-  //       // Shape 3: already unwrapped flat object  { pending, total }
-  //       if (raw && typeof raw === 'object' && 'pending' in raw) {
-  //         return raw;
-  //       }
-  //       return { pending: 0, total: 0 };
-  //     })();
-
-  //     const projectStats = unwrapPayload(getResponse('projects', { data: { pending: 0, inProgress: 0, completed: 0, total: 0 } }), { pending: 0, inProgress: 0, completed: 0, total: 0 });
-  //     const incidentStats = unwrapPayload(getResponse('incidents', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const sharepointStats = unwrapPayload(getResponse('sharepoint', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const communicationsData = unwrapPayload(getResponse('communications', { data: { drafts: 0, scheduled: 0, sent: 0 } }), { drafts: 0, scheduled: 0, sent: 0 });
-  //     const communicationsStats = { pending: (communicationsData.drafts || 0) + (communicationsData.scheduled || 0), total: communicationsData.sent || 0 };
-  //     const budgetCodesData = unwrapPayload(getResponse('budgetCodes', { data: { pending: 0, total: 0, revisions: 0, transfers: 0 } }), { pending: 0, total: 0, revisions: 0, transfers: 0 });
-  //     const budgetCodesStats = { pending: budgetCodesData.pending || 0, total: budgetCodesData.total || 0, revisions: budgetCodesData.revisions || 0, transfers: budgetCodesData.transfers || 0 };
-  //     const cashStats = unwrapPayload(getResponse('cashRequests', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const itSupportPayload = getResponse('itSupport', isSupervisor ? [] : { data: { summary: { pending: 0, total: 0 } } });
-  //     const itSupportData = isSupervisor ? itSupportPayload : unwrapPayload(itSupportPayload, { summary: { pending: 0, total: 0 } });
-  //     const itStats = isSupervisor
-  //       ? { pending: (itSupportData || []).filter(r => ['pending_supervisor', 'pending_it_review'].includes(r.status)).length, total: (itSupportData || []).length }
-  //       : itSupportData?.summary || { pending: 0, total: 0 };
-  //     const leaveStats = unwrapPayload(getResponse('sickLeave', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const suggestionsStats = unwrapPayload(getResponse('suggestions', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const buyerDashboardData = unwrapPayload(getResponse('buyerDashboard', null), null);
-  //     const buyerStats = buyerDashboardData?.statistics || {};
-  //     const buyerQuoteBreakdown = buyerDashboardData?.statusBreakdown?.quotes || [];
-  //     const getCountByStatus = (items, statuses) => items.reduce((sum, item) => sum + (statuses.includes(item._id) ? item.count : 0), 0);
-  //     const buyerRequisitionsStats = buyerDashboardData
-  //       ? { pending: Math.max((buyerStats.totalAssignedRequisitions || 0) - (buyerStats.inProgressRequisitions || 0) - (buyerStats.completedRequisitions || 0), 0), inProgress: buyerStats.inProgressRequisitions || 0, quotesReceived: getCountByStatus(buyerQuoteBreakdown, ['received', 'clarification_received']), completed: buyerStats.completedRequisitions || 0 }
-  //       : { pending: 0, inProgress: 0, quotesReceived: 0, completed: 0 };
-  //     const quotesStats = buyerDashboardData
-  //       ? { pending: getCountByStatus(buyerQuoteBreakdown, ['received', 'under_review', 'clarification_requested', 'clarification_received']), evaluated: getCountByStatus(buyerQuoteBreakdown, ['evaluated']), selected: getCountByStatus(buyerQuoteBreakdown, ['selected']) }
-  //       : { pending: 0, evaluated: 0, selected: 0 };
-  //     const invoiceData = getResponse('invoices', { data: [], count: 0, pagination: { total: 0 } });
-  //     const invoiceList = Array.isArray(invoiceData.data) ? invoiceData.data : [];
-  //     const invoiceTotal = invoiceData.pagination?.total ?? invoiceData.count ?? invoiceList.length ?? 0;
-  //     const invoicePendingStatuses = ['pending_finance_assignment', 'pending_department_approval'];
-  //     const invoicePending = invoiceEndpoint.includes('/supervisor/pending') ? invoiceTotal : invoiceList.filter(inv => invoicePendingStatuses.includes(inv.approvalStatus)).length;
-  //     const supplierApprovalData = unwrapPayload(getResponse('supplierApprovals', { data: { pending: 0, pending_supply_chain: 0, pending_head_of_business: 0, pending_finance: 0, approved: 0, rejected: 0, total: 0 } }), { pending: 0, pending_supply_chain: 0, pending_head_of_business: 0, pending_finance: 0, approved: 0, rejected: 0, total: 0 });
-  //     const buyerSuppliersPayload = getResponse('buyerSuppliers', { pagination: { totalRecords: 0 } });
-  //     const buyerSuppliersCount = buyerSuppliersPayload?.pagination?.totalRecords ?? 0;
-  //     const approvedSuppliersCount = supplierApprovalData.approved || 0;
-  //     const pendingSuppliersCount = supplierApprovalData.pending || 0;
-  //     const activeSuppliersCount = approvedSuppliersCount > 0 ? approvedSuppliersCount : buyerSuppliersCount;
-  //     const contractStatsData = unwrapPayload(getResponse('contractStats', { data: { overview: { total: 0 } } }), { overview: { total: 0 } });
-  //     const inventoryPayload = getResponse('inventory', { data: { summary: { totalItems: 0, lowStockItems: 0, outOfStockItems: 0, totalStockValue: 0 } } });
-  //     const inventorySummary = inventoryPayload?.data?.summary || inventoryPayload?.summary || { totalItems: 0, lowStockItems: 0, outOfStockItems: 0, totalStockValue: 0 };
-  //     const assetPayload = getResponse('assets', { data: { summary: { totalAssets: 0, inUseAssets: 0, overdueInspections: 0 }, valuation: { totalCurrentValue: 0 } } });
-  //     const assetSummary = assetPayload?.data?.summary || assetPayload?.summary || { totalAssets: 0, inUseAssets: 0, overdueInspections: 0 };
-  //     const assetValuation = assetPayload?.data?.valuation || assetPayload?.valuation || { totalCurrentValue: 0 };
-  //     const supplierPerformancePayload = getResponse('supplierPerformance', { data: { rankings: [], summary: { totalSuppliers: 0, averageScore: 0 } } });
-  //     const supplierPerformanceSummary = supplierPerformancePayload?.data?.summary || supplierPerformancePayload?.summary || { totalSuppliers: 0, averageScore: 0 };
-  //     const supplierPerformanceRankings = supplierPerformancePayload?.data?.rankings || supplierPerformancePayload?.rankings || [];
-  //     const purchaseOrderStats = unwrapPayload(getResponse('purchaseOrders', { data: { pendingAssignment: 0, inApprovalChain: 0 } }), { pendingAssignment: 0, inApprovalChain: 0 });
-  //     const actionItemsPayload = getResponse('actionItems', { data: { total: 0, completed: 0 } });
-  //     const actionItemsStats = unwrapPayload(actionItemsPayload, { total: 0, completed: 0 });
-  //     const actionItemsPending = Math.max((actionItemsStats.total || 0) - (actionItemsStats.completed || 0), 0);
-  //     const salaryDashboardPayload = getResponse('salaryDashboard', { data: { currentMonth: 0, yearToDate: 0, recentPayments: [] } });
-  //     const salaryDashboardData = unwrapPayload(salaryDashboardPayload, { currentMonth: 0, yearToDate: 0, recentPayments: [] });
-  //     const salaryPaymentsData = getResponse('salaryPayments', { count: 0, data: [] });
-  //     const lastPaymentDate = salaryPaymentsData?.data?.[0]?.processedAt || salaryDashboardData?.recentPayments?.[0]?.processedAt || null;
-  //     const debitNotesStats = unwrapPayload(getResponse('debitNotes', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-  //     const disbursementsStats = unwrapPayload(getResponse('disbursements', { data: { pending: 0, total: 0 } }), { pending: 0, total: 0 });
-
-  //     setStats({
-  //       cashRequests: cashStats,
-  //       invoices: { pending: invoicePending || 0, total: invoiceTotal || 0 },
-  //       incidentReports: incidentStats,
-  //       itSupport: { pending: itStats.pending, total: itStats.total },
-  //       suggestions: { pending: suggestionsStats.pending, total: suggestionsStats.total },
-  //       sickLeave: { pending: leaveStats.pending, total: leaveStats.total },
-  //       // ── purchaseRequisitions now uses the accurately parsed stats ──
-  //       purchaseRequisitions: {
-  //         pending: purchaseRequisitionStats.pending || 0,
-  //         total:   purchaseRequisitionStats.total   || 0,
-  //       },
-  //       buyerRequisitions: buyerRequisitionsStats,
-  //       quotes: quotesStats,
-  //       suppliers: { active: activeSuppliersCount || 0, pending: pendingSuppliersCount || 0, pending_supply_chain: supplierApprovalData.pending_supply_chain || 0, pending_head_of_business: supplierApprovalData.pending_head_of_business || 0, pending_finance: supplierApprovalData.pending_finance || 0 },
-  //       purchaseOrders: { active: purchaseOrderStats.inApprovalChain || 0, pending: purchaseOrderStats.pendingAssignment || 0, delivered: 0 },
-  //       projects: projectStats,
-  //       actionItems: { pending: actionItemsPending, total: actionItemsStats.total || 0 },
-  //       sharepoint: sharepointStats,
-  //       communications: communicationsStats,
-  //       budgetCodes: budgetCodesStats,
-  //       inventory: { totalItems: inventorySummary.totalItems || 0, lowStock: inventorySummary.lowStockItems || 0, outOfStock: inventorySummary.outOfStockItems || 0, totalValue: inventorySummary.totalStockValue || 0 },
-  //       fixedAssets: { totalAssets: assetSummary.totalAssets || 0, inUse: assetSummary.inUseAssets || 0, overdueInspections: assetSummary.overdueInspections || 0, totalValue: assetValuation.totalCurrentValue || 0 },
-  //       supplierPerformance: { totalSuppliers: supplierPerformanceSummary.totalSuppliers || 0, topPerformers: supplierPerformanceRankings.filter(s => s.performanceGrade === 'A').length || 0, averageScore: supplierPerformanceSummary.averageScore || 0 },
-  //       salaryPayments: { currentMonth: salaryDashboardData.currentMonth || 0, yearToDate: salaryDashboardData.yearToDate || 0, totalProcessed: salaryPaymentsData.count || 0, lastPaymentDate },
-  //       contracts: { total: contractStatsData?.overview?.total || 0 },
-  //       dataMigration: { pending: 0, completed: 0, failed: 0, total: 0 },
-  //       debitNotes: { pending: debitNotesStats.pending || 0, total: debitNotesStats.total || 0 },
-  //       disbursements: { pending: disbursementsStats.pending || 0, total: disbursementsStats.total || 0 },
-  //     });
-  //   } catch (error) {
-  //     console.error('Error fetching dashboard stats:', error);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
-
-
   const fetchDashboardStats = async () => {
   try {
     setLoading(true);
@@ -1215,7 +786,7 @@ const Dashboard = () => {
           ],
           // ── CHANGE 5 (5/23): CEO supplier management actions ──
           ceo: [
-            { label: 'Supplier Overview',    path: '/admin/suppliers',                   icon: <EyeOutlined />,     primary: true },
+            { label: 'Supplier Overview',    path: '/supply-chain/suppliers/reports',                   icon: <EyeOutlined />,     primary: true },
             { label: 'Approval Dashboard',   path: '/admin/supplier-approvals',          icon: <CrownOutlined />,   badge: true },
             { label: 'Performance Tracking', path: '/supply-chain/supplier-performance', icon: <StarOutlined /> },
             { label: 'Contract Analytics',   path: '/supply-chain/contracts',            icon: <FileTextOutlined /> },
@@ -1287,9 +858,9 @@ const Dashboard = () => {
           ],
           // ── CHANGE 5 (6/23): CEO invoice actions ──
           ceo: [
-            { label: 'Invoice Overview',   path: '/admin/invoice-management',  icon: <EyeOutlined />,     primary: true },
+            { label: 'Invoice Overview',   path: '/finance/invoice-management',  icon: <EyeOutlined />,     primary: true },
             { label: 'Final Approvals',    path: '/admin/head-approval',        icon: <CrownOutlined />,   badge: true },
-            { label: 'Invoice Analytics',  path: '/finance/invoice-analytics', icon: <BarChartOutlined /> },
+            { label: 'Invoice Analytics',  path: '/finance/invoice-management/reports', icon: <BarChartOutlined /> },
             { label: 'Payment Reports',    path: '/finance/reports',            icon: <DollarOutlined /> },
           ]
         }
@@ -1410,7 +981,7 @@ const Dashboard = () => {
           ],
           // ── CHANGE 5 (9/23): CEO IT support actions ──
           ceo: [
-            { label: 'IT Overview',      path: '/admin/it-support',      icon: <EyeOutlined />,   primary: true },
+            { label: 'IT Overview',      path: '/it/support-requests',      icon: <EyeOutlined />,   primary: true },
             { label: 'IT Dashboard',     path: '/it/dashboard',           icon: <LaptopOutlined /> },
             { label: 'Asset Management', path: '/it/asset-management',    icon: <ToolOutlined /> },
           ]
@@ -1709,7 +1280,7 @@ const Dashboard = () => {
           // ── CHANGE 5 (16/23): CEO inventory actions ──
           ceo: [
             { label: 'Inventory Overview',  path: '/supply-chain/inventory',               icon: <EyeOutlined />,     primary: true },
-            { label: 'Stock Analytics',     path: '/supply-chain/inventory?tab=reports',   icon: <BarChartOutlined /> },
+            { label: 'Stock Analytics',     path: '/supply-chain/inventory/reports',   icon: <BarChartOutlined /> },
             { label: 'Valuation Report',    path: '/supply-chain/inventory/valuation',     icon: <DollarOutlined /> },
             { label: 'Reorder Alerts',      path: '/supply-chain/inventory?tab=alerts',    icon: <WarningOutlined />, badge: true },
           ]
@@ -1857,7 +1428,7 @@ const Dashboard = () => {
           ceo: [
             { label: 'Payroll Overview',  path: '/finance/salary-payments',                           icon: <EyeOutlined />,     primary: true },
             { label: 'Monthly Summary',   path: '/finance/salary-payments?filter=current-month',      icon: <CalendarOutlined /> },
-            { label: 'Annual Report',     path: '/finance/salary-payments?filter=current-year',       icon: <BarChartOutlined /> },
+            { label: 'Annual Report',     path: '/finance/salary-payments/reports',       icon: <BarChartOutlined /> },
           ]
         }
       }] : []),
@@ -2186,25 +1757,6 @@ const Dashboard = () => {
 
   const roleInfo = getRoleInfo();
   const userCapabilities = getRoleCapabilities(user?.role);
-
-  // ── CHANGE 3 of 5: getTotalPending with CEO branch ────────────────────────
-  // const getTotalPending = () => {
-  //   const base = Object.values(stats).reduce((sum, stat) => sum + (stat?.pending || 0), 0);
-  //   if (user?.role === 'buyer') return base + (stats.buyerRequisitions.pending || 0) + (stats.buyerRequisitions.inProgress || 0) + (stats.quotes.pending || 0);
-  //   if (user?.role === 'supply_chain' || user?.role === 'admin') return base + (stats.inventory.lowStock || 0) + (stats.fixedAssets.overdueInspections || 0);
-  //   if (['supervisor', 'admin', 'supply_chain', 'manager'].includes(user?.role)) return base + dashboardData.pendingApprovals.length;
-  //   // CEO sees pending from every channel
-  //   if (user?.role === 'ceo') {
-  //     return base
-  //       + (stats.buyerRequisitions?.pending || 0)
-  //       + (stats.buyerRequisitions?.inProgress || 0)
-  //       + (stats.quotes?.pending || 0)
-  //       + (stats.inventory?.lowStock || 0)
-  //       + (stats.fixedAssets?.overdueInspections || 0)
-  //       + dashboardData.pendingApprovals.length;
-  //   }
-  //   return base;
-  // };
 
   const getTotalPending = () => {
     // Only sum the specific pending fields we care about — never double-count

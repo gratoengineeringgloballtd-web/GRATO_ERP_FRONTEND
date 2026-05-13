@@ -920,6 +920,79 @@ export const legalAPI = {
   // Compliance summary report
   getComplianceSummary:    async ()            => (await api.get('/legal/reports/compliance-summary')).data,
 };
+
+
+// ===== IT INVENTORY API =====
+export const itInventoryAPI = {
+  /**
+   * GET /api/it-inventory
+   * Accepts: { category, status, location, lowStock, search, page, limit, startDate, endDate }
+   */
+  getInventory: async (params = {}) => {
+    const response = await api.get('/it-inventory', { params });
+    return response.data;
+  },
+
+  /**
+   * GET /api/it-inventory/stats
+   * Returns summary counts and total value.
+   */
+  getStats: async () => {
+    const response = await api.get('/it-inventory/stats');
+    return response.data;
+  },
+
+  /**
+   * GET /api/it-inventory/locations
+   * Returns the distinct location strings currently in the DB.
+   */
+  getLocations: async () => {
+    const response = await api.get('/it-inventory/locations');
+    return response.data;
+  },
+
+  /**
+   * GET /api/it-inventory/:id
+   */
+  getById: async (id) => {
+    const response = await api.get(`/it-inventory/${id}`);
+    return response.data;
+  },
+
+  /**
+   * POST /api/it-inventory
+   * Accepts a plain JSON body that matches the ITInventory schema.
+   */
+  create: async (itemData) => {
+    const response = await api.post('/it-inventory', itemData);
+    return response.data;
+  },
+
+  /**
+   * PUT /api/it-inventory/:id
+   */
+  update: async (id, itemData) => {
+    const response = await api.put(`/it-inventory/${id}`, itemData);
+    return response.data;
+  },
+
+  /**
+   * DELETE /api/it-inventory/:id
+   */
+  delete: async (id) => {
+    const response = await api.delete(`/it-inventory/${id}`);
+    return response.data;
+  },
+
+  /**
+   * POST /api/it-inventory/:id/maintenance
+   * body: { date, type, description, technician, cost?, nextMaintenanceDate? }
+   */
+  addMaintenanceRecord: async (id, record) => {
+    const response = await api.post(`/it-inventory/${id}/maintenance`, record);
+    return response.data;
+  }
+};
  
 
 export const accountingAPI = {
