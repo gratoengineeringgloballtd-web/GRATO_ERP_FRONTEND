@@ -220,17 +220,23 @@ const SharePointPortal = () => {
     }
   };
 
-  const handleDeleteFile = (fileId, fileName) => {
+  const handleDeleteFile = (fileId, fileName, hasCollaborators) => {
     Modal.confirm({
       title: 'Delete File',
-      content: `Delete "${fileName}"?`,
+      content: hasCollaborators
+        ? `"${fileName}" has collaborators added to it. Remove them first (or ask an admin) before deleting.`
+        : `Delete "${fileName}"?`,
       okText: 'Delete', okType: 'danger',
+      okButtonProps: { disabled: hasCollaborators },
       async onOk() {
+        if (hasCollaborators) return;
         try {
           await sharepointAPI.deleteFile(fileId, false);
           message.success('File deleted');
           await fetchFiles(currentFolder);
-        } catch { message.error('Failed to delete file'); }
+        } catch (error) {
+          message.error(error.response?.data?.message || 'Failed to delete file');
+        }
       }
     });
   };
@@ -357,10 +363,10 @@ const SharePointPortal = () => {
                   onClick={() => handleGenerateShareLink(record._id)} />
               </Tooltip>
             )}
-            {p.canDelete !== false && (
+            {p.canDelete === true && (
               <Tooltip title="Delete">
                 <Button type="link" size="small" danger icon={<DeleteOutlined />}
-                  onClick={() => handleDeleteFile(record._id, record.name)} />
+                  onClick={() => handleDeleteFile(record._id, record.name, p.hasCollaborators)} />
               </Tooltip>
             )}
           </Space>
