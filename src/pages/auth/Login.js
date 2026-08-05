@@ -156,6 +156,7 @@ const LoginForm = () => {
               initialValues={{ remember: true }}
               onFinish={onFinish}
               layout="vertical"
+              autoComplete="on"
             >
               <Form.Item
                 name="email"
@@ -170,6 +171,9 @@ const LoginForm = () => {
                   prefix={<MailOutlined style={{ color: '#95a5a6' }} />} 
                   placeholder="Email or Phone" 
                   size="large"
+                  type="email"
+                  name="email"
+                  autoComplete="username"
                   style={{
                     backgroundColor: '#f8f9fa',
                     border: '1px solid #e9ecef'
@@ -188,9 +192,10 @@ const LoginForm = () => {
               >
                 <Input.Password
                   prefix={<LockOutlined style={{ color: '#95a5a6' }} />}
-                  type="password"
                   placeholder="Password"
                   size="large"
+                  name="password"
+                  autoComplete="current-password"
                   style={{
                     backgroundColor: '#f8f9fa',
                     border: '1px solid #e9ecef'
@@ -257,6 +262,5 @@ const Login = () => {
 };
 
 export default Login;
-
 
 

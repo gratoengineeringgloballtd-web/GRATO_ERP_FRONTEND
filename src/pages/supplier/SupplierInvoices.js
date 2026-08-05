@@ -245,69 +245,44 @@ const UnifiedSupplierPortal = () => {
   }, [fetchRfqData, fetchInvoiceData]);
 
   const handleDownloadAttachment = useCallback(async (attachment) => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        message.error('Authentication required');
-        return;
-      }
-
-      if (!attachment || !attachment.url) {
-        message.error('Invalid attachment');
-        return;
-      }
-
-      // Convert relative URL to absolute URL using API base URL
-      const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-      const absoluteUrl = attachment.url.startsWith('http') ? attachment.url : `${apiBaseUrl}${attachment.url}`;
-      
-      console.log('Downloading from:', absoluteUrl);
-
-      const response = await fetch(absoluteUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      
-      // Verify we got a valid file
-      if (blob.size === 0) {
-        throw new Error('Downloaded file is empty');
-      }
-      
-      console.log('Blob size:', blob.size, 'bytes');
-      console.log('Blob type:', blob.type);
-      
-      const blobUrl = window.URL.createObjectURL(blob);
-      
-      // Create a temporary link to download the file
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = attachment.originalName || attachment.name || 'attachment';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Clean up the blob URL
-      window.URL.revokeObjectURL(blobUrl);
-      
-      message.success('File downloaded successfully');
-    } catch (error) {
-      console.error('Error downloading attachment:', error);
-      message.error(`Failed to download attachment: ${error.message}`);
-      
-      // Fallback to direct URL if download fails
-      if (attachment?.url) {
-        window.open(attachment.url, '_blank');
-      }
+  try {
+    if (!attachment?.publicId && !attachment?.url) {
+      message.error('Invalid attachment');
+      return;
     }
-  }, []);
+
+    const token = localStorage.getItem('supplierToken') || localStorage.getItem('token');
+    const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+    
+    const publicId = attachment.publicId || attachment.cloudinaryId || attachment.relativePath;
+    const resourceType = attachment.resourceType || 'raw';
+    const filename = attachment.originalName || publicId?.split('/').pop() || 'file';
+
+    // Fetch through your backend proxy — no redirect, no Cloudinary auth issues
+    const response = await fetch(
+      `${apiBaseUrl}/suppliers/files/proxy?publicId=${encodeURIComponent(publicId)}&resourceType=${resourceType}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (!response.ok) throw new Error(`Failed to fetch file: ${response.status}`);
+
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+    
+    message.success('File downloaded successfully');
+  } catch (error) {
+    console.error('Download error:', error);
+    message.error(`Failed to download: ${error.message}`);
+  }
+}, []);
 
   // Calculate days left utility
   const calculateDaysLeft = (deadline) => {
@@ -444,9 +419,8 @@ const UnifiedSupplierPortal = () => {
 
   const generatePONumber = () => {
     const year = moment().format('YYYY');
-    const month = moment().format('MM');
-    const seq = String((invoices && invoices.length) ? invoices.length + 1 : 1).padStart(4, '0');
-    return `PO-${year}-${month}-${seq}`;
+    const seq = String((invoices?.length ?? 0) + 1).padStart(6, '0');
+    return `PO-${year}-${seq}`;
   };
 
   const generateInvoiceNumber = () => {
@@ -1626,7 +1600,7 @@ const UnifiedSupplierPortal = () => {
         >
           <Alert
             message="Invoice Upload Guidance"
-            description="PO and Invoice numbers can use any format. Recommended PO format: PO-YYYY-MM-0000 (e.g., PO-2026-01-0001). Click 'Suggest' to auto-fill."
+            description="Enter the PO number from your purchase order. Format: PO-YYYY-###### (e.g., PO-2026-000075). Click 'Suggest' to auto-fill."
             type="info"
             showIcon
             style={{ marginBottom: '16px' }}

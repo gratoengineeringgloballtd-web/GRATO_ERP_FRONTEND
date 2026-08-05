@@ -180,7 +180,7 @@ const ReimbursementRequestForm = () => {
         message.error('Reimbursement due cannot be negative.');
         return;
       }
-      if (reimbursementDue > 100000) {
+      if (reimbursementDue > 5000000) {
         message.error('Reimbursement amount cannot exceed XAF 100,000');
         return;
       }
@@ -511,7 +511,7 @@ const ReimbursementRequestForm = () => {
               </Text>
               <Divider style={{ margin: '12px 0' }} />
               <ul style={{ marginBottom: 0, paddingLeft: '20px' }}>
-                <li><strong>Maximum Amount:</strong> XAF 100,000 per request</li>
+                <li><strong>Maximum Amount:</strong> XAF 5,000,000 per request</li>
                 <li><strong>Monthly Limit:</strong> {limitStatus?.limit || 5} reimbursement requests per month</li>
                 <li><strong>Receipt Documents:</strong> Mandatory for all reimbursement requests</li>
                 <li><strong>Itemized Breakdown:</strong> Required - must match receipts uploaded</li>

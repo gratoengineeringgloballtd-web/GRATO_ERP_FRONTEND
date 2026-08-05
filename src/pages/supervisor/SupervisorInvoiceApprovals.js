@@ -269,38 +269,79 @@ const SupervisorInvoiceApprovals = () => {
     }
   }, [autoApprovalId, autoRejectId, form]);
 
-  const handleDownloadInvoice = async () => {
-    if (!selectedInvoice) {
-      message.error('No invoice selected');
-      return;
+  // REPLACE the entire handleDownloadInvoice function with:
+const handleDownloadInvoice = async () => {
+  if (!selectedInvoice) {
+    message.error('No invoice selected');
+    return;
+  }
+
+  try {
+    setDownloadingInvoice(true);
+    message.loading({ content: 'Preparing invoice for download...', key: 'invoicedownload' });
+
+    // Call the download-for-signing endpoint to get the correct document URL
+    const response = await api.get(
+      `/suppliers/invoices/${selectedInvoice._id}/download-for-signing`
+    );
+    
+    if (!response.data.success) {
+      throw new Error(response.data.message || 'Failed to get download URL');
     }
 
-    try {
-      setDownloadingInvoice(true);
-      const response = await api.get(`/suppliers/invoices/${selectedInvoice._id}/download-for-signing`);
-      
-      if (response.data.success) {
-        const { url, originalName } = response.data.data;
-        
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = originalName || 'invoice.pdf';
-        link.target = '_blank';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        message.success('Invoice downloaded successfully. Please sign and upload.');
-        setDocumentDownloaded(true);
-        setCurrentStep(1);
-      }
-    } catch (error) {
-      console.error('Error downloading invoice:', error);
-      message.error(error.response?.data?.message || 'Failed to download invoice');
-    } finally {
-      setDownloadingInvoice(false);
+    const { url, originalName } = response.data.data;
+
+    if (!url) {
+      throw new Error('No download URL returned from server');
     }
-  };
+
+    // Extract publicId from the Cloudinary URL
+    // URL format: https://res.cloudinary.com/{cloud}/raw/upload/v{version}/{publicId}.{ext}
+    const urlMatch = url.match(/\/upload\/(?:v\d+\/)?(.+)$/);
+    if (!urlMatch) {
+      throw new Error('Could not parse file URL');
+    }
+
+    // The publicId includes the extension for raw files
+    const publicId = urlMatch[1]; // e.g. "grato-erp/supplier-invoices/invoices/filename.pdf"
+    const filename = originalName || publicId.split('/').pop() || 'invoice.pdf';
+
+    // Proxy through backend to avoid Cloudinary 401
+    const fileResponse = await api.get(
+      `/suppliers/files/proxy?publicId=${encodeURIComponent(publicId)}&resourceType=raw`,
+      { responseType: 'blob' }
+    );
+
+    const blob = new Blob([fileResponse.data], {
+      type: fileResponse.headers['content-type'] || 'application/pdf'
+    });
+
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+
+    message.success({ 
+      content: 'Invoice downloaded. Please sign and upload.', 
+      key: 'invoicedownload' 
+    });
+    setDocumentDownloaded(true);
+    setCurrentStep(1);
+
+  } catch (error) {
+    console.error('Error downloading invoice:', error);
+    message.error({ 
+      content: error.message || 'Failed to download invoice', 
+      key: 'invoicedownload' 
+    });
+  } finally {
+    setDownloadingInvoice(false);
+  }
+};
 
   const handleFileUpload = (info) => {
     const { file } = info;
@@ -395,6 +436,44 @@ const SupervisorInvoiceApprovals = () => {
     setCurrentStep(0);
   };
 
+  const handleFileDownload = useCallback(async (fileMetadata, label = 'file') => {
+    if (!fileMetadata?.publicId && !fileMetadata?.url) {
+      message.error('Invalid file');
+      return;
+    }
+
+    try {
+      message.loading({ content: `Downloading ${label}...`, key: 'filedownload' });
+      
+      const publicId = fileMetadata.publicId || fileMetadata.cloudinaryId || fileMetadata.relativePath;
+      const resourceType = fileMetadata.resourceType || 'raw';
+      const filename = fileMetadata.originalName || publicId?.split('/').pop() || `${label}.pdf`;
+      
+      const response = await api.get(
+        `/suppliers/files/proxy?publicId=${encodeURIComponent(publicId)}&resourceType=${resourceType}`,
+        { responseType: 'blob' }
+      );
+
+      const blob = new Blob([response.data], { 
+        type: response.headers['content-type'] || 'application/pdf' 
+      });
+      
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+      
+      message.success({ content: `${label} downloaded successfully`, key: 'filedownload' });
+    } catch (error) {
+      console.error('Download error:', error);
+      message.error({ content: `Failed to download ${label}`, key: 'filedownload' });
+    }
+  }, []);
+
   const handleViewDetails = async (invoice) => {
     try {
       const isSupplierInvoice = invoice.invoiceType === 'supplier';
@@ -425,6 +504,7 @@ const SupervisorInvoiceApprovals = () => {
       'pending_head_of_business_approval': { color: 'orange', text: 'Pending Your Approval', icon: <ClockCircleOutlined /> },
       'pending_finance_approval': { color: 'blue', text: 'Pending Finance', icon: <ClockCircleOutlined /> },
       'pending_finance_assignment': { color: 'blue', text: 'Pending Finance', icon: <ClockCircleOutlined /> },
+      'pending_ceo_approval': { color: 'purple', text: 'Pending CEO', icon: <ClockCircleOutlined /> },
       'approved': { color: 'green', text: 'Approved', icon: <CheckCircleOutlined /> },
       'rejected': { color: 'red', text: 'Rejected', icon: <CloseCircleOutlined /> },
       'processed': { color: 'purple', text: 'Processed', icon: <CheckCircleOutlined /> },
@@ -1130,24 +1210,37 @@ const SupervisorInvoiceApprovals = () => {
 
             {/* File Downloads */}
             <Card size="small" title="Attached Files" style={{ marginBottom: '20px' }}>
-              <Space>
-                {selectedInvoice.poFile && (
+              <Space wrap>
+                {selectedInvoice.poFile?.publicId && (
                   <Button 
                     icon={<FileOutlined />}
-                    onClick={() => window.open(selectedInvoice.poFile.url, '_blank')}
+                    onClick={() => handleFileDownload(selectedInvoice.poFile, 'PO File')}
                   >
                     PO File
                   </Button>
                 )}
-                {selectedInvoice.invoiceFile && (
+                {selectedInvoice.invoiceFile?.publicId && (
                   <Button 
                     icon={<FileOutlined />}
-                    onClick={() => window.open(selectedInvoice.invoiceFile.url, '_blank')}
+                    onClick={() => handleFileDownload(selectedInvoice.invoiceFile, 'Invoice File')}
                   >
                     Invoice File
                   </Button>
                 )}
-                {!selectedInvoice.poFile && !selectedInvoice.invoiceFile && (
+                {selectedInvoice.supplyChainReview?.signedDocument?.publicId && (
+                  <Button
+                    icon={<FileOutlined />}
+                    onClick={() => handleFileDownload(
+                      selectedInvoice.supplyChainReview.signedDocument, 
+                      'SC Signed Document'
+                    )}
+                  >
+                    SC Signed Doc
+                  </Button>
+                )}
+                {!selectedInvoice.poFile?.publicId && 
+                !selectedInvoice.invoiceFile?.publicId && 
+                !selectedInvoice.supplyChainReview?.signedDocument?.publicId && (
                   <Text type="secondary">No files attached</Text>
                 )}
               </Space>
@@ -1196,13 +1289,16 @@ const SupervisorInvoiceApprovals = () => {
                                   {step.actionTime && ` at ${step.actionTime}`}
                                 </Text>
                               )}
-                              {step.signedDocument && (
+                              {step.signedDocument?.publicId && (
                                 <div style={{ marginTop: 4 }}>
                                   <Button 
                                     size="small" 
                                     type="link" 
                                     icon={<DownloadOutlined />}
-                                    onClick={() => window.open(step.signedDocument.url, '_blank')}
+                                    onClick={() => handleFileDownload(
+                                      step.signedDocument, 
+                                      `Level ${step.level} Signed Document`
+                                    )}
                                   >
                                     View Signed Document
                                   </Button>

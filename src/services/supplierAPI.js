@@ -309,33 +309,6 @@ class SupplierApiService {
     }
   }
 
-  // Get all suppliers (admin function)
-  // async getAllSuppliers(params = {}) {
-  //   try {
-  //     console.log('API Service: Getting all suppliers with params:', params);
-      
-  //     const response = await api.get('/suppliers/admin/all', { params });
-      
-  //     console.log('API Response:', response.data);
-      
-  //     if (response.data && response.data.success) {
-  //       return {
-  //         success: true,
-  //         data: response.data.data,
-  //         pagination: response.data.pagination
-  //       };
-  //     }
-      
-  //     return {
-  //       success: false,
-  //       message: response.data.message || 'Failed to fetch suppliers'
-  //     };
-  //   } catch (error) {
-  //     console.error('Get all suppliers API error:', error);
-  //     throw this.handleError(error);
-  //   }
-  // }
-
 
   async getAllSuppliers(params = {}) {
     try {

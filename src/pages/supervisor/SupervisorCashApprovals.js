@@ -48,6 +48,8 @@ import {
   MedicineBoxOutlined
 } from '@ant-design/icons';
 import { cashRequestAPI } from '../../services/cashRequestAPI';
+import DelegatedQueuePanel from '../../components/DelegatedQueuePanel';
+// import { useNavigate } from 'react-router-dom';
 
 // ── PDF Viewer sub-component ──────────────────────────────────────────────────
 const PDFViewer = ({ url, name, authHeaders }) => {
@@ -310,18 +312,32 @@ const SupervisorCashApprovals = () => {
 
   const [form] = Form.useForm();
 
-  // ── Permission helpers ──────────────────────────────────────────────────────
+  // // ── Permission helpers ──────────────────────────────────────────────────────
+  // const canUserApprove = useCallback((request) => {
+  //   if (!request?.approvalChain?.length || !user?.email) return false;
+  //   if (isJustificationStatus(request.status) || TERMINAL_STATUSES.has(request.status)) return false;
+
+  //   // teamRequestMetadata is the fastest check when available
+  //   if (request.teamRequestMetadata) return request.teamRequestMetadata.userHasPendingApproval === true;
+
+  //   // Otherwise check the chain directly
+  //   const pendingStep = request.approvalChain.find(s => s.status === 'pending');
+  //   if (!pendingStep) return false;
+  //   return pendingStep.approver?.email?.toLowerCase() === user.email.toLowerCase();
+  // }, [user?.email]);
+
   const canUserApprove = useCallback((request) => {
     if (!request?.approvalChain?.length || !user?.email) return false;
-    if (isJustificationStatus(request.status) || TERMINAL_STATUSES.has(request.status)) return false;
+    if (isJustificationStatus(request.status)) return false;
 
-    // teamRequestMetadata is the fastest check when available
+    // Trust the chain/metadata over the top-level status field — status can lag
+    // behind when a level-specific decision endpoint doesn't account for later levels.
     if (request.teamRequestMetadata) return request.teamRequestMetadata.userHasPendingApproval === true;
 
-    // Otherwise check the chain directly
-    const pendingStep = request.approvalChain.find(s => s.status === 'pending');
-    if (!pendingStep) return false;
-    return pendingStep.approver?.email?.toLowerCase() === user.email.toLowerCase();
+    const pendingStep = request.approvalChain.find(s =>
+      s.approver?.email?.toLowerCase() === user.email.toLowerCase() && s.status === 'pending'
+    );
+    return !!pendingStep;
   }, [user?.email]);
 
   const hasUserApproved = useCallback((request) => {

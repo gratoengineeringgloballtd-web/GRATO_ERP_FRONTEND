@@ -47,6 +47,7 @@ import {
   StopOutlined,
   CrownOutlined,
   BankOutlined,
+  AuditOutlined,
   SafetyCertificateOutlined
 } from '@ant-design/icons';
 import { purchaseRequisitionAPI } from '../../services/purchaseRequisitionAPI';
@@ -136,6 +137,12 @@ const SupervisorPurchaseRequisitions = () => {
   const [cancellationLoading, setCancellationLoading] = useState(false);
   const [cancellationComments, setCancellationComments] = useState('');
   const [cancellationActionLoading, setCancellationActionLoading] = useState(false);
+  const [justifications, setJustifications] = useState([]);
+  const [justificationDrawerVisible, setJustificationDrawerVisible] = useState(false);
+  const [selectedJustification, setSelectedJustification] = useState(null);
+  const [justDecision, setJustDecision] = useState('');
+  const [justComments, setJustComments] = useState('');
+  const [justActionLoading, setJustActionLoading] = useState(false);
 
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -145,6 +152,7 @@ const SupervisorPurchaseRequisitions = () => {
   useEffect(() => {
     fetchRequisitions();
     fetchCancellationRequests();
+    fetchJustifications();
   }, []);
 
   const fetchRequisitions = async () => {
@@ -163,6 +171,31 @@ const SupervisorPurchaseRequisitions = () => {
       setRequisitions([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchJustifications = async () => {
+    try {
+      // Reuse the same supervisor endpoint — justification-status requisitions
+      // come through because the backend includes them in the query
+      const response = await purchaseRequisitionAPI.getSupervisorRequisitions();
+      if (response.success) {
+        const JUST_STATUSES = [
+          'justification_pending_supervisor',
+          'justification_pending_finance',
+          'justification_pending_supply_chain',
+          'justification_pending_head',
+          'justification_pending_ceo',
+          'justification_rejected_supervisor',
+          'justification_rejected_finance',
+          'justification_rejected_supply_chain',
+          'justification_rejected_head',
+          'justification_rejected_ceo',
+        ];
+        setJustifications((response.data || []).filter(r => JUST_STATUSES.includes(r.status)));
+      }
+    } catch (error) {
+      console.error('Error fetching justifications:', error);
     }
   };
 
@@ -334,6 +367,42 @@ const SupervisorPurchaseRequisitions = () => {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleJustificationDecision = async () => {
+    if (!justDecision) { message.error('Please select a decision'); return; }
+    if (!justComments || justComments.trim().length < 10) {
+      message.error('Please provide comments (at least 10 characters)');
+      return;
+    }
+    Modal.confirm({
+      title: `Confirm ${justDecision === 'approved' ? 'Approval' : 'Rejection'}`,
+      content: `Are you sure you want to ${justDecision} this justification?`,
+      onOk: async () => {
+        setJustActionLoading(true);
+        try {
+          const response = await purchaseRequisitionAPI.processJustificationDecision(
+            selectedJustification._id,
+            { decision: justDecision, comments: justComments }
+          );
+          if (response.success) {
+            message.success(`Justification ${justDecision === 'approved' ? 'approved' : 'rejected'} successfully`);
+            setJustificationDrawerVisible(false);
+            setSelectedJustification(null);
+            setJustDecision('');
+            setJustComments('');
+            await fetchRequisitions();
+            await fetchJustifications();
+          } else {
+            message.error(response.message || 'Failed to process decision');
+          }
+        } catch (error) {
+          message.error(error.message || 'Failed to process decision');
+        } finally {
+          setJustActionLoading(false);
+        }
+      }
+    });
   };
 
   const handleViewDetails = async (requisition) => {
@@ -1142,6 +1211,132 @@ const SupervisorPurchaseRequisitions = () => {
               />
             )}
           </TabPane>
+          <TabPane
+            tab={
+              <Badge count={justifications.filter(j =>
+                (isCEO && j.status === 'justification_pending_ceo') ||
+                (!isCEO && j.status === 'justification_pending_supervisor' &&
+                  j.approvalChain?.some(s =>
+                    s.approver?.email?.toLowerCase() === user?.email?.toLowerCase() &&
+                    s.status === 'approved'
+                  ))
+              ).length} size="small">
+                <span><FileTextOutlined /> Justification Reviews ({justifications.length})</span>
+              </Badge>
+            }
+            key="justifications"
+          >
+            {justifications.length === 0 ? (
+              <Alert
+                message="No Justification Reviews"
+                description="No justifications are awaiting your review."
+                type="info"
+                showIcon
+              />
+            ) : (
+              <Table
+                columns={[
+                  {
+                    title: 'Requester',
+                    key: 'employee',
+                    render: (_, r) => (
+                      <div>
+                        <Text strong>{r.employee?.fullName || 'N/A'}</Text><br />
+                        <Text type="secondary" style={{ fontSize: '12px' }}>{r.department}</Text>
+                      </div>
+                    ),
+                    width: 160
+                  },
+                  {
+                    title: 'Requisition',
+                    key: 'req',
+                    render: (_, r) => <Text code>{r.requisitionNumber}</Text>,
+                    width: 140
+                  },
+                  {
+                    title: 'Amount',
+                    key: 'amount',
+                    render: (_, r) => (
+                      <Text strong style={{ color: '#1890ff' }}>
+                        XAF {(r.budgetXAF || 0).toLocaleString()}
+                      </Text>
+                    ),
+                    width: 130
+                  },
+                  {
+                    title: 'Justification Status',
+                    key: 'status',
+                    render: (_, r) => getStatusTag(r.status, r),
+                    width: 220
+                  },
+                  {
+                    title: 'Submitted',
+                    key: 'submitted',
+                    render: (_, r) => r.justification?.submittedDate
+                      ? new Date(r.justification.submittedDate).toLocaleDateString('en-GB')
+                      : '—',
+                    width: 110
+                  },
+                  {
+                    title: 'Actions',
+                    key: 'actions',
+                    render: (_, r) => {
+                      const canAct =
+                        (isCEO && r.status === 'justification_pending_ceo') ||
+                        (!isCEO && r.status === 'justification_pending_supervisor');
+                      return (
+                        <Space size="small">
+                          <Button
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={async () => {
+                              try {
+                                const resp = await purchaseRequisitionAPI.getRequisition(r._id);
+                                if (resp.success) {
+                                  setSelectedJustification(resp.data);
+                                  setJustificationDrawerVisible(true);
+                                  setJustDecision('');
+                                  setJustComments('');
+                                }
+                              } catch { message.error('Failed to load details'); }
+                            }}
+                          >
+                            View
+                          </Button>
+                          {canAct && (
+                            <Button
+                              size="small"
+                              type="primary"
+                              icon={<AuditOutlined />}
+                              onClick={async () => {
+                                try {
+                                  const resp = await purchaseRequisitionAPI.getRequisition(r._id);
+                                  if (resp.success) {
+                                    setSelectedJustification(resp.data);
+                                    setJustificationDrawerVisible(true);
+                                    setJustDecision('');
+                                    setJustComments('');
+                                  }
+                                } catch { message.error('Failed to load details'); }
+                              }}
+                            >
+                              Review
+                            </Button>
+                          )}
+                        </Space>
+                      );
+                    },
+                    width: 130
+                  }
+                ]}
+                dataSource={justifications}
+                rowKey="_id"
+                loading={loading}
+                pagination={{ pageSize: 10, showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
+                scroll={{ x: 'max-content' }}
+              />
+            )}
+          </TabPane>
         </Tabs>
       </Card>
 
@@ -1269,6 +1464,264 @@ const SupervisorPurchaseRequisitions = () => {
             {renderCancellationActionCard()}
           </div>
         )}
+      </Drawer>
+      
+      <Drawer
+        title={<Space><FileTextOutlined />Justification Review</Space>}
+        placement="right"
+        width={860}
+        open={justificationDrawerVisible}
+        onClose={() => {
+          setJustificationDrawerVisible(false);
+          setSelectedJustification(null);
+          setJustDecision('');
+          setJustComments('');
+        }}
+      >
+        {selectedJustification && (() => {
+          const j = selectedJustification.justification || {};
+          const totalBudget   = selectedJustification.budgetXAF || 0;
+          const totalDisbursed = selectedJustification.totalDisbursed || 0;
+          const spent    = j.totalSpent || 0;
+          const returned = j.changeReturned || 0;
+          const balanced = Math.abs((spent + returned) - totalDisbursed) < 1;
+
+          const canAct =
+            (isCEO && selectedJustification.status === 'justification_pending_ceo') ||
+            (!isCEO && selectedJustification.status === 'justification_pending_supervisor');
+
+          return (
+            <div>
+              {/* Status banner */}
+              <Alert
+                message={`Justification at: ${selectedJustification.status.replace(/_/g, ' ').replace('justification pending ', '').toUpperCase()}`}
+                type={selectedJustification.status.includes('rejected') ? 'error' : 'warning'}
+                showIcon
+                style={{ marginBottom: '16px' }}
+              />
+
+              {/* Requisition summary */}
+              <Card size="small" title="Requisition Summary" style={{ marginBottom: '16px' }}>
+                <Descriptions column={2} size="small">
+                  <Descriptions.Item label="Number"><Text code>{selectedJustification.requisitionNumber}</Text></Descriptions.Item>
+                  <Descriptions.Item label="Employee"><Text strong>{selectedJustification.employee?.fullName}</Text></Descriptions.Item>
+                  <Descriptions.Item label="Title">{selectedJustification.title}</Descriptions.Item>
+                  <Descriptions.Item label="Department"><Tag color="blue">{selectedJustification.department}</Tag></Descriptions.Item>
+                  <Descriptions.Item label="Approved Budget">
+                    <Text strong style={{ color: '#1890ff' }}>XAF {totalBudget.toLocaleString()}</Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Total Disbursed">
+                    <Text strong style={{ color: '#52c41a' }}>XAF {totalDisbursed.toLocaleString()}</Text>
+                  </Descriptions.Item>
+                </Descriptions>
+              </Card>
+
+              {/* Financial reconciliation */}
+              <Card size="small" title="Financial Reconciliation" style={{ marginBottom: '16px' }}>
+                <Row gutter={16} style={{ marginBottom: '12px' }}>
+                  <Col span={8}>
+                    <Statistic title="Amount Spent" value={spent}
+                      prefix="XAF " valueStyle={{ color: '#f5222d', fontSize: '16px' }} />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic title="Change Returned" value={returned}
+                      prefix="XAF " valueStyle={{ color: '#52c41a', fontSize: '16px' }} />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic title="Disbursed" value={totalDisbursed}
+                      prefix="XAF " valueStyle={{ color: '#1890ff', fontSize: '16px' }} />
+                  </Col>
+                </Row>
+                {!balanced && (
+                  <Alert
+                    message={`Discrepancy: spent (${spent.toLocaleString()}) + returned (${returned.toLocaleString()}) ≠ disbursed (${totalDisbursed.toLocaleString()})`}
+                    type="warning" showIcon
+                  />
+                )}
+                {balanced && (
+                  <Alert message="Accounts balance — total reconciled correctly." type="success" showIcon />
+                )}
+              </Card>
+
+              {/* Expense items */}
+              {j.actualExpenses?.length > 0 && (
+                <Card size="small" title={`Actual Expenses (${j.actualExpenses.length})`} style={{ marginBottom: '16px' }}>
+                  <Table
+                    dataSource={j.actualExpenses}
+                    size="small"
+                    pagination={false}
+                    rowKey={(_, i) => i}
+                    columns={[
+                      { title: 'Description', dataIndex: 'description', key: 'description' },
+                      { title: 'Category', dataIndex: 'category', key: 'category',
+                        render: c => <Tag>{c}</Tag> },
+                      { title: 'Date', dataIndex: 'date', key: 'date',
+                        render: d => d ? new Date(d).toLocaleDateString('en-GB') : '—', width: 100 },
+                      { title: 'Amount', dataIndex: 'amount', key: 'amount',
+                        render: a => <Text strong>XAF {Number(a||0).toLocaleString()}</Text>, width: 130 }
+                    ]}
+                    summary={rows => (
+                      <Table.Summary.Row>
+                        <Table.Summary.Cell index={0} colSpan={3}><Text strong>Total</Text></Table.Summary.Cell>
+                        <Table.Summary.Cell index={1}>
+                          <Text strong style={{ color: '#1890ff' }}>
+                            XAF {rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0).toLocaleString()}
+                          </Text>
+                        </Table.Summary.Cell>
+                      </Table.Summary.Row>
+                    )}
+                  />
+                </Card>
+              )}
+
+              {/* Summary text */}
+              {j.justificationSummary && (
+                <Card size="small" title="Justification Summary" style={{ marginBottom: '16px' }}>
+                  <Text>{j.justificationSummary}</Text>
+                </Card>
+              )}
+
+              {/* Receipts */}
+              {j.receipts?.length > 0 && (
+                <Card size="small" title={`Receipts (${j.receipts.length})`} style={{ marginBottom: '16px' }}>
+                  <Space wrap>
+                    {j.receipts.map((r, i) => (
+                      <Button key={i} size="small" icon={<FileTextOutlined />}
+                        onClick={() => window.open(r.url, '_blank')}>
+                        {r.name || `Receipt ${i + 1}`}
+                      </Button>
+                    ))}
+                  </Space>
+                </Card>
+              )}
+
+              {/* Prior reviews */}
+              {(j.supervisorReview || j.financeReview || j.supplyChainReview || j.headReview) && (
+                <Card size="small" title="Prior Decisions" style={{ marginBottom: '16px' }}>
+                  <Timeline>
+                    {j.supervisorReview && (
+                      <Timeline.Item color={j.supervisorReview.decision === 'approved' ? 'green' : 'red'}>
+                        <Text strong>Supervisor: </Text>
+                        <Tag color={j.supervisorReview.decision === 'approved' ? 'green' : 'red'}>
+                          {j.supervisorReview.decision}
+                        </Tag>
+                        {j.supervisorReview.comments && <Text italic> — "{j.supervisorReview.comments}"</Text>}
+                        <br />
+                        <Text type="secondary" style={{ fontSize: '11px' }}>
+                          {j.supervisorReview.reviewedDate ? new Date(j.supervisorReview.reviewedDate).toLocaleString('en-GB') : ''}
+                        </Text>
+                      </Timeline.Item>
+                    )}
+                    {j.financeReview && (
+                      <Timeline.Item color={j.financeReview.decision === 'approved' ? 'green' : 'red'}>
+                        <Text strong>Finance: </Text>
+                        <Tag color={j.financeReview.decision === 'approved' ? 'green' : 'red'}>
+                          {j.financeReview.decision}
+                        </Tag>
+                        {j.financeReview.comments && <Text italic> — "{j.financeReview.comments}"</Text>}
+                      </Timeline.Item>
+                    )}
+                    {j.supplyChainReview && (
+                      <Timeline.Item color={j.supplyChainReview.decision === 'approved' ? 'green' : 'red'}>
+                        <Text strong>Supply Chain: </Text>
+                        <Tag color={j.supplyChainReview.decision === 'approved' ? 'green' : 'red'}>
+                          {j.supplyChainReview.decision}
+                        </Tag>
+                        {j.supplyChainReview.comments && <Text italic> — "{j.supplyChainReview.comments}"</Text>}
+                      </Timeline.Item>
+                    )}
+                    {j.headReview && (
+                      <Timeline.Item color={j.headReview.decision === 'approved' ? 'green' : 'red'}>
+                        <Text strong>Head of Business: </Text>
+                        <Tag color={j.headReview.decision === 'approved' ? 'green' : 'red'}>
+                          {j.headReview.decision}
+                        </Tag>
+                        {j.headReview.comments && <Text italic> — "{j.headReview.comments}"</Text>}
+                      </Timeline.Item>
+                    )}
+                  </Timeline>
+                </Card>
+              )}
+
+              {/* Decision form — only shown when it's this user's turn */}
+              {canAct && (
+                <Card
+                  size="small"
+                  title={
+                    <Space>
+                      <AuditOutlined />
+                      <Text strong style={{ color: isCEO ? '#faad14' : '#1890ff' }}>
+                        {isCEO ? 'CEO Final Decision' : 'Your Decision'}
+                      </Text>
+                    </Space>
+                  }
+                  style={{ borderColor: isCEO ? '#faad14' : '#1890ff' }}
+                  headStyle={{ backgroundColor: isCEO ? '#fff7e6' : '#e6f7ff' }}
+                >
+                  <Alert
+                    message={isCEO ? 'This is the final CEO approval on the justification.' : 'Review the financial reconciliation above before deciding.'}
+                    type={isCEO ? 'warning' : 'info'}
+                    showIcon
+                    style={{ marginBottom: '16px' }}
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div>
+                      <Text strong style={{ display: 'block', marginBottom: '8px' }}>Decision *</Text>
+                      <Select
+                        placeholder="Select your decision"
+                        style={{ width: '100%' }}
+                        value={justDecision || undefined}
+                        onChange={setJustDecision}
+                      >
+                        <Select.Option value="approved">
+                          <CheckCircleOutlined style={{ color: '#52c41a' }} /> Approve Justification
+                        </Select.Option>
+                        <Select.Option value="rejected">
+                          <CloseCircleOutlined style={{ color: '#ff4d4f' }} /> Return for Revision
+                        </Select.Option>
+                      </Select>
+                    </div>
+                    <div>
+                      <Text strong style={{ display: 'block', marginBottom: '8px' }}>Comments * (min 10 chars)</Text>
+                      <TextArea
+                        rows={3}
+                        placeholder="Explain your decision…"
+                        value={justComments}
+                        onChange={e => setJustComments(e.target.value)}
+                        showCount
+                        maxLength={500}
+                      />
+                    </div>
+                    <Space>
+                      <Button
+                        type="primary"
+                        loading={justActionLoading}
+                        icon={<SendOutlined />}
+                        onClick={handleJustificationDecision}
+                        style={isCEO ? { backgroundColor: '#faad14', borderColor: '#faad14' } : {}}
+                      >
+                        Submit Decision
+                      </Button>
+                      <Button onClick={() => { setJustDecision(''); setJustComments(''); }}>
+                        Clear
+                      </Button>
+                    </Space>
+                  </div>
+                </Card>
+              )}
+
+              {/* Read-only notice if not their turn */}
+              {!canAct && !selectedJustification.status.includes('rejected') && !selectedJustification.status.includes('approved') && (
+                <Alert
+                  message="Not yet at your approval level"
+                  description={`This justification is currently at: ${selectedJustification.status.replace(/_/g, ' ')}`}
+                  type="info"
+                  showIcon
+                />
+              )}
+            </div>
+          );
+        })()}
       </Drawer>
     </div>
   );

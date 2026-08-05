@@ -63,6 +63,20 @@ const STAGE_IDX    = { created:0, supplier_acknowledgment:1, in_production:2, in
 // Terminal statuses where editing is not allowed
 const NON_EDITABLE_STATUSES = ['delivered', 'completed', 'cancelled'];
 
+// ✅ NEW: PDF download is locked until final approval (CEO if required, else last step)
+const isFullyApproved = (po) => {
+  const chain = Array.isArray(po?.approvalChain) ? po.approvalChain : [];
+  if (chain.length === 0) return false;
+
+  const ceoStep = chain.find(s =>
+    s.approver?.role === 'CEO - Final Authority' ||
+    String(s.approver?.email || '').toLowerCase() === 'tom@gratoglobal.com' // match CEO.email from ceoApprovalConfig.js
+  );
+
+  if (ceoStep) return ceoStep.status === 'approved';
+  return chain[chain.length - 1]?.status === 'approved';
+};
+
 // ─────────────────────────────────────────────
 // TenderSelectionBlock — used in Path A
 // ─────────────────────────────────────────────
@@ -729,9 +743,28 @@ const BuyerPurchaseOrders = () => {
               </Tooltip>
             )}
           </Space>
-          <Space size={4}>
+          {/* <Space size={4}>
             <Tooltip title="Download PDF">
               <Button size="small" icon={<DownloadOutlined/>} loading={pdfLoading} onClick={()=>handleDownloadPDF(r)}/>
+            </Tooltip>
+            <Tooltip title="Email PDF">
+              <Button size="small" icon={<ShareAltOutlined/>} onClick={()=>handleEmailPDF(r)}/>
+            </Tooltip>
+            {!['delivered','completed','cancelled'].includes(r.status)&&(
+              <Tooltip title="Cancel">
+                <Button size="small" danger icon={<StopOutlined/>} onClick={()=>handleCancelPO(r)}/>
+              </Tooltip>
+            )}
+          </Space> */}
+          <Space size={4}>
+            <Tooltip title={isFullyApproved(r) ? 'Download PDF' : 'Available after final approval'}>
+              <Button
+                size="small"
+                icon={<DownloadOutlined/>}
+                loading={pdfLoading}
+                disabled={!isFullyApproved(r)}
+                onClick={()=>handleDownloadPDF(r)}
+              />
             </Tooltip>
             <Tooltip title="Email PDF">
               <Button size="small" icon={<ShareAltOutlined/>} onClick={()=>handleEmailPDF(r)}/>
@@ -1406,13 +1439,21 @@ const BuyerPurchaseOrders = () => {
                   Send to Supplier
                 </Button>
               )}
-              {/* FIX: removed 'pending_supply_chain_assignment' from exclusion list in drawer too */}
               {!NON_EDITABLE_STATUSES.includes(selectedPO.status)&&(
                 <Button icon={<EditOutlined/>} onClick={()=>{ setDetailDrawerVisible(false); handleEditPO(selectedPO); }}>
                   Edit PO
                 </Button>
               )}
-              <Button icon={<DownloadOutlined/>} loading={pdfLoading} onClick={()=>handleDownloadPDF(selectedPO)}>Download PDF</Button>
+              <Tooltip title={isFullyApproved(selectedPO) ? '' : 'Available after final approval'}>
+                <Button
+                  icon={<DownloadOutlined/>}
+                  loading={pdfLoading}
+                  disabled={!isFullyApproved(selectedPO)}
+                  onClick={()=>handleDownloadPDF(selectedPO)}
+                >
+                  Download PDF
+                </Button>
+              </Tooltip>
               <Button icon={<ShareAltOutlined/>} onClick={()=>handleEmailPDF(selectedPO)}>Email PDF</Button>
             </Space>
           </div>

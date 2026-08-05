@@ -23,6 +23,8 @@ import {
   Upload,
   Steps,
   Divider,
+  Tabs,
+  Progress,
   App
 } from 'antd';
 import {
@@ -41,15 +43,20 @@ import {
   UploadOutlined,
   WarningOutlined,
   CrownOutlined,
-  InboxOutlined
+  InboxOutlined,
+  UserOutlined,
+  DollarOutlined
 } from '@ant-design/icons';
 import api from '../../services/api';
+import { StatusTag } from '../config/supplierInvoiceStatus';
+import ApprovalStatusTracker from '../common/ApprovalStatusTracker';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 const { Dragger } = Upload;
 const { Step } = Steps;
+const { TabPane } = Tabs;
 
 const SupplyChainInvoiceManagement = () => {
   const [invoices, setInvoices] = useState([]);
@@ -65,6 +72,11 @@ const SupplyChainInvoiceManagement = () => {
     supplierType: null
   });
 
+  // Tab / tracking state
+  const [activeTab, setActiveTab] = useState('pending_supply_chain_assignment');
+  const [allInvoices, setAllInvoices] = useState([]);
+  const [allInvoicesLoading, setAllInvoicesLoading] = useState(false);
+
   // Assignment workflow states
   const [assignDepartment, setAssignDepartment] = useState('');
   const [assignComments, setAssignComments] = useState('');
@@ -76,7 +88,7 @@ const SupplyChainInvoiceManagement = () => {
   // Rejection states
   const [rejectReason, setRejectReason] = useState('');
 
-  // Fetch pending invoices
+  // Fetch pending invoices (Awaiting Assignment tab)
   const fetchPendingInvoices = useCallback(async () => {
     try {
       setLoading(true);
@@ -98,6 +110,60 @@ const SupplyChainInvoiceManagement = () => {
     }
   }, [filters]);
 
+  // Fetch every supplier invoice regardless of status, for the tracking tabs
+  const fetchAllInvoicesForTracking = useCallback(async () => {
+    try {
+      setAllInvoicesLoading(true);
+      const response = await api.get('/suppliers/admin/invoices');
+      if (response.data.success) {
+        setAllInvoices(response.data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching invoice history:', error);
+      message.error('Failed to fetch invoice history');
+    } finally {
+      setAllInvoicesLoading(false);
+    }
+  }, []);
+
+  const handleFileDownload = useCallback(async (fileMetadata, label = 'file') => {
+    if (!fileMetadata?.publicId && !fileMetadata?.url) {
+      message.error('Invalid file');
+      return;
+    }
+
+    try {
+      message.loading({ content: `Downloading ${label}...`, key: 'download' });
+      
+      const publicId = fileMetadata.publicId || fileMetadata.cloudinaryId || fileMetadata.relativePath;
+      const resourceType = fileMetadata.resourceType || 'raw';
+      const filename = fileMetadata.originalName || publicId?.split('/').pop() || `${label}.pdf`;
+      
+      const response = await api.get(
+        `/suppliers/files/proxy?publicId=${encodeURIComponent(publicId)}&resourceType=${resourceType}`,
+        { responseType: 'blob' }
+      );
+
+      const blob = new Blob([response.data], { 
+        type: response.headers['content-type'] || 'application/pdf' 
+      });
+      
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+      
+      message.success({ content: `${label} downloaded successfully`, key: 'download' });
+    } catch (error) {
+      console.error('Download error:', error);
+      message.error({ content: `Failed to download ${label}`, key: 'download' });
+    }
+  }, []);
+
   // Fetch dashboard stats
   const fetchStats = useCallback(async () => {
     try {
@@ -111,11 +177,15 @@ const SupplyChainInvoiceManagement = () => {
   }, []);
 
   useEffect(() => {
-    fetchPendingInvoices();
+    if (activeTab === 'pending_supply_chain_assignment') {
+      fetchPendingInvoices();
+    } else {
+      fetchAllInvoicesForTracking();
+    }
     fetchStats();
-  }, [fetchPendingInvoices, fetchStats]);
+  }, [activeTab, fetchPendingInvoices, fetchAllInvoicesForTracking, fetchStats]);
 
-  // Handle download invoice for signing
+  
   const handleDownloadInvoice = async () => {
     if (!selectedInvoice) {
       message.error('No invoice selected');
@@ -127,66 +197,36 @@ const SupplyChainInvoiceManagement = () => {
       const response = await api.get(`/suppliers/invoices/${selectedInvoice._id}/download-for-signing`);
       
       if (response.data.success) {
-        let { url, originalName } = response.data.data;
+        const { url, originalName } = response.data.data;
         
-        console.log('Original URL from API:', url);
+        // Extract publicId from the Cloudinary URL if we have it,
+        // otherwise fall back to the invoiceFile metadata
+        const fileMetadata = selectedInvoice.invoiceFile || 
+                            selectedInvoice.supplyChainReview?.signedDocument;
         
-        // Get the API server URL (e.g., http://localhost:5001)
-        const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
-        const apiUrl = new URL(apiBaseUrl);
-        const serverBase = `${apiUrl.protocol}//${apiUrl.host}`;
-        
-        // Build absolute URL for static files
-        let absoluteUrl;
-        
-        if (url.startsWith('http')) {
-          // Already absolute URL
-          absoluteUrl = url;
-        } else if (url.startsWith('/uploads/')) {
-          // It's a local file path - use server base + path
-          absoluteUrl = serverBase + url;
-        } else if (url.startsWith('/api/uploads/')) {
-          // Remove the /api prefix
-          const cleanPath = url.replace('/api/uploads/', '/uploads/');
-          absoluteUrl = serverBase + cleanPath;
+        if (fileMetadata?.publicId) {
+          await handleFileDownload(fileMetadata, originalName || 'invoice');
         } else {
-          // Try to use it as-is
-          absoluteUrl = serverBase + url;
+          // Fallback: try to proxy using the URL directly via backend
+          const proxyResponse = await api.get(
+            `/suppliers/files/proxy?publicId=${encodeURIComponent(
+              url.replace('https://res.cloudinary.com/dnoroctvb/raw/upload/', '')
+                .replace(/^v\d+\//, '')
+            )}&resourceType=raw`,
+            { responseType: 'blob' }
+          );
+          
+          const blob = new Blob([proxyResponse.data], { type: 'application/pdf' });
+          const blobUrl = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = originalName || 'invoice.pdf';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(blobUrl);
         }
-        
-        console.log('Downloading from:', absoluteUrl);
-        
-        // Fetch the file as a blob
-        const fileResponse = await fetch(absoluteUrl, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        
-        if (!fileResponse.ok) {
-          throw new Error(`Failed to fetch file: ${fileResponse.statusText} (${fileResponse.status})`);
-        }
-        
-        const blob = await fileResponse.blob();
-        
-        // Verify we got a valid file
-        if (blob.size === 0) {
-          throw new Error('Downloaded file is empty');
-        }
-        
-        console.log('Blob size:', blob.size, 'bytes');
-        console.log('Blob type:', blob.type);
-        
-        // Create blob URL and trigger download
-        const blobUrl = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = originalName || 'invoice.pdf';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(blobUrl);
-        
+
         message.success('Invoice downloaded successfully. Please sign and upload.');
         setDocumentDownloaded(true);
         setCurrentStep(1);
@@ -320,10 +360,32 @@ const SupplyChainInvoiceManagement = () => {
     }
   };
 
-  // View invoice details
+  // View invoice details — always re-fetch the full record so the tracker
+  // has the complete approvalChain, not just the flat list row.
   const handleViewDetails = async (invoice) => {
-    setSelectedInvoice(invoice);
-    setDetailsModalVisible(true);
+    try {
+      setLoading(true);
+      const response = await api.get(`/suppliers/invoices/${invoice._id}`);
+      setSelectedInvoice(response.data.success ? response.data.data : invoice);
+    } catch (error) {
+      setSelectedInvoice(invoice);
+    } finally {
+      setLoading(false);
+      setDetailsModalVisible(true);
+    }
+  };
+
+  const getApprovalProgress = (invoice) => {
+    if (!invoice.approvalChain || invoice.approvalChain.length === 0) return 0;
+    const approved = invoice.approvalChain.filter(step => step.status === 'approved').length;
+    return Math.round((approved / invoice.approvalChain.length) * 100);
+  };
+
+  const getTrackingTabCount = (status) => {
+    if (status === 'all') return allInvoices.length;
+    return allInvoices.filter(inv =>
+      inv.approvalStatus === status || (status === 'paid' && inv.paymentStatus === 'paid')
+    ).length;
   };
 
   const columns = [
@@ -423,22 +485,22 @@ const SupplyChainInvoiceManagement = () => {
       render: (_, record) => (
         <Space>
           {record.poFile && (
-            <Tooltip title={record.poFile.originalName}>
+            <Tooltip title={record.poFile.originalName || 'PO File'}>
               <Button 
                 size="small" 
                 icon={<FileOutlined />} 
                 type="link"
-                onClick={() => window.open(record.poFile.url, '_blank')}
+                onClick={() => handleFileDownload(record.poFile, 'PO File')}
               />
             </Tooltip>
           )}
           {record.invoiceFile && (
-            <Tooltip title={record.invoiceFile.originalName}>
+            <Tooltip title={record.invoiceFile.originalName || 'Invoice File'}>
               <Button 
                 size="small" 
                 icon={<FileOutlined />} 
                 type="link"
-                onClick={() => window.open(record.invoiceFile.url, '_blank')}
+                onClick={() => handleFileDownload(record.invoiceFile, 'Invoice File')}
               />
             </Tooltip>
           )}
@@ -494,6 +556,89 @@ const SupplyChainInvoiceManagement = () => {
     }
   ];
 
+  // Read-only column set used by every tracking tab (all statuses except
+  // the "Awaiting Assignment" tab, which keeps the actionable `columns` above)
+  const trackingColumns = [
+    {
+      title: 'PO Number',
+      dataIndex: 'poNumber',
+      key: 'poNumber',
+      render: (text) => <Text code>{text}</Text>,
+      width: 150
+    },
+    {
+      title: 'Invoice Number',
+      dataIndex: 'invoiceNumber',
+      key: 'invoiceNumber',
+      width: 140
+    },
+    {
+      title: 'Supplier',
+      key: 'supplier',
+      render: (_, record) => (
+        <div>
+          <Text strong>{record.supplierDetails?.companyName}</Text>
+          <br />
+          <Text type="secondary" style={{ fontSize: '12px' }}>
+            {record.supplierDetails?.contactName}
+          </Text>
+        </div>
+      ),
+      width: 220
+    },
+    {
+      title: 'Amount',
+      dataIndex: 'invoiceAmount',
+      key: 'amount',
+      render: (amount, record) => (
+        <Text strong>{record.currency || 'XAF'} {amount?.toLocaleString() || 0}</Text>
+      ),
+      width: 120
+    },
+    {
+      title: 'Department',
+      dataIndex: 'assignedDepartment',
+      key: 'assignedDepartment',
+      render: (dept) => dept || <Text type="secondary">Not assigned</Text>,
+      width: 160
+    },
+    {
+      title: 'Status',
+      dataIndex: 'approvalStatus',
+      key: 'status',
+      render: (status) => <StatusTag status={status} />,
+      width: 200
+    },
+    {
+      title: 'Progress',
+      key: 'progress',
+      render: (_, record) => {
+        const progress = getApprovalProgress(record);
+        let status = 'active';
+        if (record.approvalStatus === 'rejected') status = 'exception';
+        if (record.approvalStatus === 'approved' || record.approvalStatus === 'paid') status = 'success';
+        return (
+          <div style={{ width: 80 }}>
+            <Progress percent={progress} size="small" status={status} showInfo={false} />
+            <Text style={{ fontSize: '11px' }}>{progress}%</Text>
+          </div>
+        );
+      },
+      width: 100
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      fixed: 'right',
+      width: 90,
+      render: (_, record) => (
+        <Tooltip title="View Details">
+          <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetails(record)} />
+        </Tooltip>
+      )
+    }
+  ];
+
   return (
     <App>
       <div style={{ padding: '24px' }}>
@@ -506,130 +651,221 @@ const SupplyChainInvoiceManagement = () => {
               <Button 
                 icon={<ReloadOutlined />} 
                 onClick={() => {
-                  fetchPendingInvoices();
+                  if (activeTab === 'pending_supply_chain_assignment') {
+                    fetchPendingInvoices();
+                  } else {
+                    fetchAllInvoicesForTracking();
+                  }
                   fetchStats();
               }}
-              loading={loading}
+              loading={loading || allInvoicesLoading}
             >
               Refresh
             </Button>
           </Space>
         </div>
 
-        <Alert
-          message="Document Signing Workflow"
-          description="For each invoice, you must: 1) Download the invoice 2) Sign it manually 3) Upload the signed document before assigning to a department."
-          type="info"
-          showIcon
-          icon={<FileTextOutlined />}
-          style={{ marginBottom: '24px' }}
-          closable
-        />
-
-        {/* Statistics */}
-        {stats && (
-          <Row gutter={16} style={{ marginBottom: '24px' }}>
-            <Col span={6}>
-              <Card>
-                <Statistic
-                  title="Pending Assignment"
-                  value={stats.pendingAssignment}
-                  prefix={<ClockCircleOutlined />}
-                  valueStyle={{ color: '#faad14' }}
-                />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic
-                  title="Assigned Today"
-                  value={stats.assignedToday}
-                  prefix={<CheckCircleOutlined />}
-                  valueStyle={{ color: '#52c41a' }}
-                />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic
-                  title="Rejected Today"
-                  value={stats.rejectedToday}
-                  prefix={<CloseCircleOutlined />}
-                  valueStyle={{ color: '#ff4d4f' }}
-                />
-              </Card>
-            </Col>
-            <Col span={6}>
-              <Card>
-                <Statistic
-                  title="In Approval Chain"
-                  value={stats.inApprovalChain}
-                  prefix={<ShopOutlined />}
-                  valueStyle={{ color: '#1890ff' }}
-                />
-              </Card>
-            </Col>
-          </Row>
-        )}
-
-        {/* Filters */}
-        <Card size="small" style={{ marginBottom: '16px', backgroundColor: '#fafafa' }}>
-          <Row gutter={16}>
-            <Col span={8}>
-              <Select
-                placeholder="Filter by Service Category"
-                style={{ width: '100%' }}
-                allowClear
-                value={filters.serviceCategory}
-                onChange={(value) => setFilters(prev => ({ ...prev, serviceCategory: value }))}
-              >
-                <Option value="HSE">HSE</Option>
-                <Option value="Refurbishment">Refurbishment</Option>
-                <Option value="Project">Project</Option>
-                <Option value="Operations">Operations</Option>
-                <Option value="Diesel">Diesel</Option>
-                <Option value="Supply Chain">Supply Chain</Option>
-                <Option value="HR/Admin">HR/Admin</Option>
-                <Option value="General">General</Option>
-              </Select>
-            </Col>
-            <Col span={8}>
-              <Select
-                placeholder="Filter by Supplier Type"
-                style={{ width: '100%' }}
-                allowClear
-                value={filters.supplierType}
-                onChange={(value) => setFilters(prev => ({ ...prev, supplierType: value }))}
-              >
-                <Option value="Materials">Materials</Option>
-                <Option value="Services">Services</Option>
-                <Option value="Equipment">Equipment</Option>
-                <Option value="Contractor">Contractor</Option>
-              </Select>
-            </Col>
-          </Row>
-        </Card>
-
-        {/* Bulk Actions Alert */}
-        {selectedInvoices.length > 0 && (
-          <Alert
-            message={`${selectedInvoices.length} invoice(s) selected`}
-            description="Note: Bulk assignment requires signing each invoice individually. Use single assignment for document signing workflow."
-            type="info"
-            showIcon
-            action={
-              <Button size="small" onClick={() => setSelectedInvoices([])}>
-                Clear Selection
-              </Button>
+        <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ marginBottom: 16 }}>
+          <TabPane
+            tab={
+              <Badge count={invoices.length} size="small" style={{ backgroundColor: '#1890ff' }}>
+                <span><ClockCircleOutlined /> Awaiting Assignment ({invoices.length})</span>
+              </Badge>
             }
-            style={{ marginBottom: '16px' }}
+            key="pending_supply_chain_assignment"
           />
+          {/* <TabPane
+            tab={
+              <Badge count={getTrackingTabCount('pending_department_head_approval')} size="small" style={{ backgroundColor: '#faad14' }}>
+                <span><UserOutlined /> Dept. Head ({getTrackingTabCount('pending_department_head_approval')})</span>
+              </Badge>
+            }
+            key="pending_department_head_approval"
+          />
+          <TabPane
+            tab={
+              <Badge count={getTrackingTabCount('pending_head_of_business_approval')} size="small" style={{ backgroundColor: '#fa8c16' }}>
+                <span><CrownOutlined /> Head of Business ({getTrackingTabCount('pending_head_of_business_approval')})</span>
+              </Badge>
+            }
+            key="pending_head_of_business_approval"
+          />
+          <TabPane
+            tab={
+              <Badge count={getTrackingTabCount('pending_finance_approval')} size="small" style={{ backgroundColor: '#722ed1' }}>
+                <span>Finance ({getTrackingTabCount('pending_finance_approval')})</span>
+              </Badge>
+            }
+            key="pending_finance_approval"
+          />
+          <TabPane
+            tab={
+              <Badge count={getTrackingTabCount('pending_ceo_approval')} size="small" style={{ backgroundColor: '#fa8c16' }}>
+                <span>CEO ({getTrackingTabCount('pending_ceo_approval')})</span>
+              </Badge>
+            }
+            key="pending_ceo_approval"
+          />
+          <TabPane
+            tab={
+              <Badge count={getTrackingTabCount('approved')} size="small" style={{ backgroundColor: '#52c41a' }}>
+                <span>Approved ({getTrackingTabCount('approved')})</span>
+              </Badge>
+            }
+            key="approved"
+          />
+          <TabPane
+            tab={
+              <Badge count={getTrackingTabCount('rejected')} size="small" style={{ backgroundColor: '#ff4d4f' }}>
+                <span>Rejected ({getTrackingTabCount('rejected')})</span>
+              </Badge>
+            }
+            key="rejected"
+          />
+          <TabPane
+            tab={
+              <Badge count={getTrackingTabCount('paid')} size="small" style={{ backgroundColor: '#13c2c2' }}>
+                <span><DollarOutlined /> Paid ({getTrackingTabCount('paid')})</span>
+              </Badge>
+            }
+            key="paid"
+          /> */}
+          <TabPane
+            tab={
+              <Badge count={getTrackingTabCount('all')} size="small" style={{ backgroundColor: '#8c8c8c' }}>
+                <span><FileTextOutlined /> All ({getTrackingTabCount('all')})</span>
+              </Badge>
+            }
+            key="all"
+          />
+        </Tabs>
+
+        {activeTab === 'pending_supply_chain_assignment' && (
+          <>
+            <Alert
+              message="Document Signing Workflow"
+              description="For each invoice, you must: 1) Download the invoice 2) Sign it manually 3) Upload the signed document before assigning to a department."
+              type="info"
+              showIcon
+              icon={<FileTextOutlined />}
+              style={{ marginBottom: '24px' }}
+              closable
+            />
+
+            {/* Statistics */}
+            {stats && (
+              <Row gutter={16} style={{ marginBottom: '24px' }}>
+                <Col span={6}>
+                  <Card>
+                    <Statistic
+                      title="Pending Assignment"
+                      value={stats.pendingAssignment}
+                      prefix={<ClockCircleOutlined />}
+                      valueStyle={{ color: '#faad14' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card>
+                    <Statistic
+                      title="Assigned Today"
+                      value={stats.assignedToday}
+                      prefix={<CheckCircleOutlined />}
+                      valueStyle={{ color: '#52c41a' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card>
+                    <Statistic
+                      title="Rejected Today"
+                      value={stats.rejectedToday}
+                      prefix={<CloseCircleOutlined />}
+                      valueStyle={{ color: '#ff4d4f' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card>
+                    <Statistic
+                      title="In Approval Chain"
+                      value={stats.inApprovalChain}
+                      prefix={<ShopOutlined />}
+                      valueStyle={{ color: '#1890ff' }}
+                    />
+                  </Card>
+                </Col>
+              </Row>
+            )}
+
+            {/* Filters */}
+            <Card size="small" style={{ marginBottom: '16px', backgroundColor: '#fafafa' }}>
+              <Row gutter={16}>
+                <Col span={8}>
+                  <Select
+                    placeholder="Filter by Service Category"
+                    style={{ width: '100%' }}
+                    allowClear
+                    value={filters.serviceCategory}
+                    onChange={(value) => setFilters(prev => ({ ...prev, serviceCategory: value }))}
+                  >
+                    <Option value="HSE">HSE</Option>
+                    <Option value="Refurbishment">Refurbishment</Option>
+                    <Option value="Project">Project</Option>
+                    <Option value="Operations">Operations</Option>
+                    <Option value="Diesel">Diesel</Option>
+                    <Option value="Supply Chain">Supply Chain</Option>
+                    <Option value="HR/Admin">HR/Admin</Option>
+                    <Option value="General">General</Option>
+                  </Select>
+                </Col>
+                <Col span={8}>
+                  <Select
+                    placeholder="Filter by Supplier Type"
+                    style={{ width: '100%' }}
+                    allowClear
+                    value={filters.supplierType}
+                    onChange={(value) => setFilters(prev => ({ ...prev, supplierType: value }))}
+                  >
+                    <Option value="Materials">Materials</Option>
+                    <Option value="Services">Services</Option>
+                    <Option value="Equipment">Equipment</Option>
+                    <Option value="Contractor">Contractor</Option>
+                  </Select>
+                </Col>
+              </Row>
+            </Card>
+
+            {/* Bulk Actions Alert */}
+            {selectedInvoices.length > 0 && (
+              <Alert
+                message={`${selectedInvoices.length} invoice(s) selected`}
+                description="Note: Bulk assignment requires signing each invoice individually. Use single assignment for document signing workflow."
+                type="info"
+                showIcon
+                action={
+                  <Button size="small" onClick={() => setSelectedInvoices([])}>
+                    Clear Selection
+                  </Button>
+                }
+                style={{ marginBottom: '16px' }}
+              />
+            )}
+          </>
         )}
 
         <Table
-          columns={columns}
-          dataSource={invoices}
-          loading={loading}
+          columns={activeTab === 'pending_supply_chain_assignment' ? columns : trackingColumns}
+          dataSource={
+            activeTab === 'pending_supply_chain_assignment'
+              ? invoices
+              : activeTab === 'all'
+                ? allInvoices
+                : allInvoices.filter(inv =>
+                    inv.approvalStatus === activeTab || (activeTab === 'paid' && inv.paymentStatus === 'paid')
+                  )
+          }
+          loading={activeTab === 'pending_supply_chain_assignment' ? loading : allInvoicesLoading}
           rowKey="_id"
           scroll={{ x: 1300 }}
           size="small"
@@ -795,22 +1031,61 @@ const SupplyChainInvoiceManagement = () => {
                   <Option value="Technical">
                     <div>
                       <Text strong>Technical</Text>
-                      <br />
-                      <Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Didier Oyong</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Didier Oyong</Text>
+                    </div>
+                  </Option>
+                  <Option value="Technical Operations">
+                    <div>
+                      <Text strong>Technical Operations</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Pascal Assam</Text>
+                    </div>
+                  </Option>
+                  <Option value="Technical HSE">
+                    <div>
+                      <Text strong>Technical HSE</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Ovo Bechem</Text>
                     </div>
                   </Option>
                   <Option value="Business Development & Supply Chain">
                     <div>
                       <Text strong>Business Development & Supply Chain</Text>
-                      <br />
-                      <Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. E.T Kelvin</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. E.T Kelvin</Text>
                     </div>
                   </Option>
-                  <Option value="HR & Admin">
+                  <Option value="HR/Admin">
                     <div>
                       <Text strong>HR & Admin</Text>
-                      <br />
-                      <Text type="secondary" style={{ fontSize: 11 }}>Head: Mrs. Bruiline Tsitoh</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mrs. Bruiline Tsitoh</Text>
+                    </div>
+                  </Option>
+                  <Option value="IT">
+                    <div>
+                      <Text strong>IT</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Marcel Ngong</Text>
+                    </div>
+                  </Option>
+                  <Option value="Finance">
+                    <div>
+                      <Text strong>Finance</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Ms. Ranibell Mambo</Text>
+                    </div>
+                  </Option>
+                  <Option value="Operations">
+                    <div>
+                      <Text strong>Operations</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Pascal Assam</Text>
+                    </div>
+                  </Option>
+                  <Option value="HSE">
+                    <div>
+                      <Text strong>HSE</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Ovo Bechem</Text>
+                    </div>
+                  </Option>
+                  <Option value="Supply Chain">
+                    <div>
+                      <Text strong>Supply Chain</Text>
+                      <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Lukong Lambert</Text>
                     </div>
                   </Option>
                 </Select>
@@ -934,41 +1209,48 @@ const SupplyChainInvoiceManagement = () => {
           setSelectedInvoice(null);
         }}
         footer={null}
-        width={700}
+        width={900}
       >
         {selectedInvoice && (
-          <Descriptions bordered column={2} size="small">
-            <Descriptions.Item label="PO Number" span={2}>
-              <Text code copyable>{selectedInvoice.poNumber}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="Invoice Number">
-              {selectedInvoice.invoiceNumber}
-            </Descriptions.Item>
-            <Descriptions.Item label="Amount">
-              <Text strong>{selectedInvoice.currency} {selectedInvoice.invoiceAmount.toLocaleString()}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="Supplier Company" span={2}>
-              <div>
-                <Text strong>{selectedInvoice.supplierDetails?.companyName}</Text>
-                <br />
-                <Text type="secondary">{selectedInvoice.supplierDetails?.contactName}</Text>
-              </div>
-            </Descriptions.Item>
-            <Descriptions.Item label="Supplier Type">
-              <Tag color="green">{selectedInvoice.supplierDetails?.supplierType}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Service Category">
-              <Tag color="purple">{selectedInvoice.serviceCategory}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Submitted Date" span={2}>
-              {new Date(selectedInvoice.uploadedDate).toLocaleDateString('en-GB')} at {selectedInvoice.uploadedTime}
-            </Descriptions.Item>
-            {selectedInvoice.description && (
-              <Descriptions.Item label="Description" span={2}>
-                <Paragraph>{selectedInvoice.description}</Paragraph>
+          <div>
+            <Descriptions bordered column={2} size="small" style={{ marginBottom: 20 }}>
+              <Descriptions.Item label="PO Number" span={2}>
+                <Text code copyable>{selectedInvoice.poNumber}</Text>
               </Descriptions.Item>
-            )}
-          </Descriptions>
+              <Descriptions.Item label="Invoice Number">
+                {selectedInvoice.invoiceNumber}
+              </Descriptions.Item>
+              <Descriptions.Item label="Amount">
+                <Text strong>{selectedInvoice.currency} {selectedInvoice.invoiceAmount.toLocaleString()}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Supplier Company" span={2}>
+                <div>
+                  <Text strong>{selectedInvoice.supplierDetails?.companyName}</Text>
+                  <br />
+                  <Text type="secondary">{selectedInvoice.supplierDetails?.contactName}</Text>
+                </div>
+              </Descriptions.Item>
+              <Descriptions.Item label="Supplier Type">
+                <Tag color="green">{selectedInvoice.supplierDetails?.supplierType}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Service Category">
+                <Tag color="purple">{selectedInvoice.serviceCategory}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Submitted Date" span={2}>
+                {new Date(selectedInvoice.uploadedDate).toLocaleDateString('en-GB')} at {selectedInvoice.uploadedTime}
+              </Descriptions.Item>
+              {selectedInvoice.description && (
+                <Descriptions.Item label="Description" span={2}>
+                  <Paragraph>{selectedInvoice.description}</Paragraph>
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+
+            {/* Approval Status Tracker - this page previously had no
+                visibility into what happens to an invoice after assignment */}
+            <Divider />
+            <ApprovalStatusTracker invoice={selectedInvoice} onDownloadFile={handleFileDownload} />
+          </div>
         )}
       </Modal>
       </div>
@@ -977,3 +1259,1050 @@ const SupplyChainInvoiceManagement = () => {
 };
 
 export default SupplyChainInvoiceManagement;
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import React, { useState, useEffect, useCallback } from 'react';
+// import {
+//   Card,
+//   Table,
+//   Button,
+//   Modal,
+//   Select,
+//   Typography,
+//   Tag,
+//   Space,
+//   Input,
+//   Descriptions,
+//   Alert,
+//   message,
+//   Popconfirm,
+//   Tooltip,
+//   Badge,
+//   Checkbox,
+//   Statistic,
+//   Row,
+//   Col,
+//   notification,
+//   Upload,
+//   Steps,
+//   Divider,
+//   App
+// } from 'antd';
+// import {
+//   FileTextOutlined,
+//   SendOutlined,
+//   CloseCircleOutlined,
+//   CheckCircleOutlined,
+//   ClockCircleOutlined,
+//   EyeOutlined,
+//   ReloadOutlined,
+//   ShopOutlined,
+//   TeamOutlined,
+//   FilterOutlined,
+//   FileOutlined,
+//   DownloadOutlined,
+//   UploadOutlined,
+//   WarningOutlined,
+//   CrownOutlined,
+//   InboxOutlined
+// } from '@ant-design/icons';
+// import api from '../../services/api';
+// import ApprovalStatusTracker from '../common/ApprovalStatusTracker'; 
+
+// const { Title, Text, Paragraph } = Typography;
+// const { Option } = Select;
+// const { TextArea } = Input;
+// const { Dragger } = Upload;
+// const { Step } = Steps;
+
+// const SupplyChainInvoiceManagement = () => {
+//   const [invoices, setInvoices] = useState([]);
+//   const [loading, setLoading] = useState(false);
+//   const [selectedInvoices, setSelectedInvoices] = useState([]);
+//   const [assignModalVisible, setAssignModalVisible] = useState(false);
+//   const [rejectModalVisible, setRejectModalVisible] = useState(false);
+//   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+//   const [selectedInvoice, setSelectedInvoice] = useState(null);
+//   const [stats, setStats] = useState(null);
+//   const [filters, setFilters] = useState({
+//     serviceCategory: null,
+//     supplierType: null
+//   });
+
+//   // Assignment workflow states
+//   const [assignDepartment, setAssignDepartment] = useState('');
+//   const [assignComments, setAssignComments] = useState('');
+//   const [signedDocumentFile, setSignedDocumentFile] = useState(null);
+//   const [currentStep, setCurrentStep] = useState(0);
+//   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+//   const [documentDownloaded, setDocumentDownloaded] = useState(false);
+  
+//   // Rejection states
+//   const [rejectReason, setRejectReason] = useState('');
+
+//   // Fetch pending invoices
+//   const fetchPendingInvoices = useCallback(async () => {
+//     try {
+//       setLoading(true);
+//       const params = new URLSearchParams();
+      
+//       if (filters.serviceCategory) params.append('serviceCategory', filters.serviceCategory);
+//       if (filters.supplierType) params.append('supplierType', filters.supplierType);
+      
+//       const response = await api.get(`/suppliers/supply-chain/invoices/pending?${params}`);
+      
+//       if (response.data.success) {
+//         setInvoices(response.data.data || []);
+//       }
+//     } catch (error) {
+//       console.error('Error fetching invoices:', error);
+//       message.error('Failed to fetch invoices');
+//     } finally {
+//       setLoading(false);
+//     }
+//   }, [filters]);
+
+//   const handleFileDownload = useCallback(async (fileMetadata, label = 'file') => {
+//     if (!fileMetadata?.publicId && !fileMetadata?.url) {
+//       message.error('Invalid file');
+//       return;
+//     }
+
+//     try {
+//       message.loading({ content: `Downloading ${label}...`, key: 'download' });
+      
+//       const publicId = fileMetadata.publicId || fileMetadata.cloudinaryId || fileMetadata.relativePath;
+//       const resourceType = fileMetadata.resourceType || 'raw';
+//       const filename = fileMetadata.originalName || publicId?.split('/').pop() || `${label}.pdf`;
+      
+//       const response = await api.get(
+//         `/suppliers/files/proxy?publicId=${encodeURIComponent(publicId)}&resourceType=${resourceType}`,
+//         { responseType: 'blob' }
+//       );
+
+//       const blob = new Blob([response.data], { 
+//         type: response.headers['content-type'] || 'application/pdf' 
+//       });
+      
+//       const blobUrl = window.URL.createObjectURL(blob);
+//       const link = document.createElement('a');
+//       link.href = blobUrl;
+//       link.download = filename;
+//       document.body.appendChild(link);
+//       link.click();
+//       document.body.removeChild(link);
+//       window.URL.revokeObjectURL(blobUrl);
+      
+//       message.success({ content: `${label} downloaded successfully`, key: 'download' });
+//     } catch (error) {
+//       console.error('Download error:', error);
+//       message.error({ content: `Failed to download ${label}`, key: 'download' });
+//     }
+//   }, []);
+
+//   // Fetch dashboard stats
+//   const fetchStats = useCallback(async () => {
+//     try {
+//       const response = await api.get('/suppliers/supply-chain/dashboard/stats');
+//       if (response.data.success) {
+//         setStats(response.data.data);
+//       }
+//     } catch (error) {
+//       console.error('Error fetching stats:', error);
+//     }
+//   }, []);
+
+//   useEffect(() => {
+//     fetchPendingInvoices();
+//     fetchStats();
+//   }, [fetchPendingInvoices, fetchStats]);
+
+  
+//   const handleDownloadInvoice = async () => {
+//     if (!selectedInvoice) {
+//       message.error('No invoice selected');
+//       return;
+//     }
+
+//     try {
+//       setDownloadingInvoice(true);
+//       const response = await api.get(`/suppliers/invoices/${selectedInvoice._id}/download-for-signing`);
+      
+//       if (response.data.success) {
+//         const { url, originalName } = response.data.data;
+        
+//         // Extract publicId from the Cloudinary URL if we have it,
+//         // otherwise fall back to the invoiceFile metadata
+//         const fileMetadata = selectedInvoice.invoiceFile || 
+//                             selectedInvoice.supplyChainReview?.signedDocument;
+        
+//         if (fileMetadata?.publicId) {
+//           await handleFileDownload(fileMetadata, originalName || 'invoice');
+//         } else {
+//           // Fallback: try to proxy using the URL directly via backend
+//           const proxyResponse = await api.get(
+//             `/suppliers/files/proxy?publicId=${encodeURIComponent(
+//               url.replace('https://res.cloudinary.com/dnoroctvb/raw/upload/', '')
+//                 .replace(/^v\d+\//, '')
+//             )}&resourceType=raw`,
+//             { responseType: 'blob' }
+//           );
+          
+//           const blob = new Blob([proxyResponse.data], { type: 'application/pdf' });
+//           const blobUrl = window.URL.createObjectURL(blob);
+//           const link = document.createElement('a');
+//           link.href = blobUrl;
+//           link.download = originalName || 'invoice.pdf';
+//           document.body.appendChild(link);
+//           link.click();
+//           document.body.removeChild(link);
+//           window.URL.revokeObjectURL(blobUrl);
+//         }
+
+//         message.success('Invoice downloaded successfully. Please sign and upload.');
+//         setDocumentDownloaded(true);
+//         setCurrentStep(1);
+//       }
+//     } catch (error) {
+//       console.error('Error downloading invoice:', error);
+//       message.error(`Failed to download invoice: ${error.message}`);
+//     } finally {
+//       setDownloadingInvoice(false);
+//     }
+//   };
+
+//   // Handle file upload
+//   const handleFileUpload = (info) => {
+//     const { file } = info;
+    
+//     // Validate file type
+//     const isValidType = file.type === 'application/pdf' || 
+//                         file.type === 'image/jpeg' || 
+//                         file.type === 'image/png' ||
+//                         file.type === 'image/jpg';
+    
+//     if (!isValidType) {
+//       message.error('You can only upload PDF, JPG, or PNG files!');
+//       return;
+//     }
+
+//     // Validate file size (max 10MB)
+//     const isValidSize = file.size / 1024 / 1024 < 10;
+//     if (!isValidSize) {
+//       message.error('File must be smaller than 10MB!');
+//       return;
+//     }
+
+//     setSignedDocumentFile(file);
+//     message.success(`${file.name} selected successfully`);
+//     setCurrentStep(2);
+//   };
+
+//   // Handle assignment with signed document
+//   const handleAssign = async () => {
+//     if (!assignDepartment) {
+//       message.error('Please select a department');
+//       return;
+//     }
+    
+//     if (!signedDocumentFile) {
+//       message.error('Please upload the signed document');
+//       return;
+//     }
+    
+//     try {
+//       setLoading(true);
+      
+//       const formData = new FormData();
+//       formData.append('department', assignDepartment);
+//       if (assignComments) {
+//         formData.append('comments', assignComments);
+//       }
+//       formData.append('signedDocument', signedDocumentFile);
+      
+//       const response = await api.post(
+//         `/suppliers/supply-chain/invoices/${selectedInvoice._id}/assign`,
+//         formData,
+//         {
+//           headers: {
+//             'Content-Type': 'multipart/form-data'
+//           }
+//         }
+//       );
+      
+//       if (response.data.success) {
+//         notification.success({
+//           message: 'Invoice Assigned Successfully',
+//           description: `Invoice ${selectedInvoice.invoiceNumber} has been signed and assigned to ${assignDepartment}. The Department Head will be notified.`,
+//           duration: 5
+//         });
+        
+//         // Reset and close
+//         setAssignModalVisible(false);
+//         resetAssignmentForm();
+//         fetchPendingInvoices();
+//         fetchStats();
+//       }
+      
+//     } catch (error) {
+//       console.error('Assignment error:', error);
+//       message.error(error.response?.data?.message || 'Failed to assign invoice');
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   // Reset assignment form
+//   const resetAssignmentForm = () => {
+//     setSelectedInvoice(null);
+//     setSelectedInvoices([]);
+//     setAssignDepartment('');
+//     setAssignComments('');
+//     setSignedDocumentFile(null);
+//     setDocumentDownloaded(false);
+//     setCurrentStep(0);
+//   };
+
+//   // Handle rejection
+//   const handleReject = async () => {
+//     if (!rejectReason || rejectReason.trim().length < 10) {
+//       message.error('Rejection reason must be at least 10 characters');
+//       return;
+//     }
+    
+//     try {
+//       setLoading(true);
+      
+//       const response = await api.post(`/suppliers/supply-chain/invoices/${selectedInvoice._id}/reject`, {
+//         rejectionReason: rejectReason
+//       });
+      
+//       if (response.data.success) {
+//         message.success('Invoice rejected successfully');
+//         setRejectModalVisible(false);
+//         setSelectedInvoice(null);
+//         setRejectReason('');
+//         fetchPendingInvoices();
+//         fetchStats();
+//       }
+//     } catch (error) {
+//       message.error(error.response?.data?.message || 'Failed to reject invoice');
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   // View invoice details
+//   const handleViewDetails = async (invoice) => {
+//     setSelectedInvoice(invoice);
+//     setDetailsModalVisible(true);
+//   };
+
+//   const columns = [
+//     {
+//       title: (
+//         <Checkbox
+//           indeterminate={selectedInvoices.length > 0 && selectedInvoices.length < invoices.length}
+//           checked={invoices.length > 0 && selectedInvoices.length === invoices.length}
+//           onChange={(e) => {
+//             if (e.target.checked) {
+//               setSelectedInvoices(invoices.map(inv => inv._id));
+//             } else {
+//               setSelectedInvoices([]);
+//             }
+//           }}
+//         />
+//       ),
+//       dataIndex: 'select',
+//       key: 'select',
+//       width: 50,
+//       render: (_, record) => (
+//         <Checkbox
+//           checked={selectedInvoices.includes(record._id)}
+//           onChange={(e) => {
+//             if (e.target.checked) {
+//               setSelectedInvoices([...selectedInvoices, record._id]);
+//             } else {
+//               setSelectedInvoices(selectedInvoices.filter(id => id !== record._id));
+//             }
+//           }}
+//         />
+//       )
+//     },
+//     {
+//       title: 'PO Number',
+//       dataIndex: 'poNumber',
+//       key: 'poNumber',
+//       render: (text) => <Text code>{text}</Text>,
+//       width: 150
+//     },
+//     {
+//       title: 'Invoice Number',
+//       dataIndex: 'invoiceNumber',
+//       key: 'invoiceNumber',
+//       width: 140
+//     },
+//     {
+//       title: 'Supplier',
+//       key: 'supplier',
+//       render: (_, record) => (
+//         <div>
+//           <Text strong>{record.supplierDetails?.companyName}</Text>
+//           <br />
+//           <Text type="secondary" style={{ fontSize: '12px' }}>
+//             {record.supplierDetails?.contactName}
+//           </Text>
+//           <br />
+//           <Tag size="small" color="green">
+//             {record.supplierDetails?.supplierType}
+//           </Tag>
+//         </div>
+//       ),
+//       width: 220
+//     },
+//     {
+//       title: 'Amount',
+//       dataIndex: 'invoiceAmount',
+//       key: 'amount',
+//       render: (amount, record) => (
+//         <Text strong>{record.currency || 'XAF'} {amount.toLocaleString()}</Text>
+//       ),
+//       width: 120
+//     },
+//     {
+//       title: 'Service Category',
+//       dataIndex: 'serviceCategory',
+//       key: 'category',
+//       render: (cat) => <Tag color="purple">{cat}</Tag>,
+//       width: 130
+//     },
+//     {
+//       title: 'Submitted',
+//       key: 'submitted',
+//       render: (_, record) => (
+//         <div>
+//           <div>{new Date(record.uploadedDate).toLocaleDateString('en-GB')}</div>
+//           <Text type="secondary" style={{ fontSize: '11px' }}>
+//             {record.uploadedTime}
+//           </Text>
+//         </div>
+//       ),
+//       width: 100
+//     },
+//     {
+//       title: 'Files',
+//       key: 'files',
+//       render: (_, record) => (
+//         <Space>
+//           {record.poFile && (
+//             <Tooltip title={record.poFile.originalName || 'PO File'}>
+//               <Button 
+//                 size="small" 
+//                 icon={<FileOutlined />} 
+//                 type="link"
+//                 onClick={() => handleFileDownload(record.poFile, 'PO File')}
+//               />
+//             </Tooltip>
+//           )}
+//           {record.invoiceFile && (
+//             <Tooltip title={record.invoiceFile.originalName || 'Invoice File'}>
+//               <Button 
+//                 size="small" 
+//                 icon={<FileOutlined />} 
+//                 type="link"
+//                 onClick={() => handleFileDownload(record.invoiceFile, 'Invoice File')}
+//               />
+//             </Tooltip>
+//           )}
+//         </Space>
+//       ),
+//       width: 80
+//     },
+//     {
+//       title: 'Actions',
+//       key: 'actions',
+//       fixed: 'right',
+//       width: 200,
+//       render: (_, record) => (
+//         <Space size="small">
+//           <Tooltip title="View Details">
+//             <Button 
+//               size="small" 
+//               icon={<EyeOutlined />}
+//               onClick={() => handleViewDetails(record)}
+//             />
+//           </Tooltip>
+          
+//           <Tooltip title="Download, Sign & Assign">
+//             <Button 
+//               size="small" 
+//               type="primary"
+//               icon={<SendOutlined />}
+//               onClick={() => {
+//                 setSelectedInvoice(record);
+//                 setSelectedInvoices([record._id]);
+//                 setAssignModalVisible(true);
+//               }}
+//             >
+//               Assign
+//             </Button>
+//           </Tooltip>
+          
+//           <Tooltip title="Reject Invoice">
+//             <Button 
+//               size="small" 
+//               danger
+//               icon={<CloseCircleOutlined />}
+//               onClick={() => {
+//                 setSelectedInvoice(record);
+//                 setRejectModalVisible(true);
+//               }}
+//             >
+//               Reject
+//             </Button>
+//           </Tooltip>
+//         </Space>
+//       )
+//     }
+//   ];
+
+//   return (
+//     <App>
+//       <div style={{ padding: '24px' }}>
+//         <Card>
+//           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+//             <Title level={2} style={{ margin: 0 }}>
+//               <TeamOutlined /> Supply Chain - Supplier Invoice Management
+//             </Title>
+//             <Space>
+//               <Button 
+//                 icon={<ReloadOutlined />} 
+//                 onClick={() => {
+//                   fetchPendingInvoices();
+//                   fetchStats();
+//               }}
+//               loading={loading}
+//             >
+//               Refresh
+//             </Button>
+//           </Space>
+//         </div>
+
+//         <Alert
+//           message="Document Signing Workflow"
+//           description="For each invoice, you must: 1) Download the invoice 2) Sign it manually 3) Upload the signed document before assigning to a department."
+//           type="info"
+//           showIcon
+//           icon={<FileTextOutlined />}
+//           style={{ marginBottom: '24px' }}
+//           closable
+//         />
+
+//         {/* Statistics */}
+//         {stats && (
+//           <Row gutter={16} style={{ marginBottom: '24px' }}>
+//             <Col span={6}>
+//               <Card>
+//                 <Statistic
+//                   title="Pending Assignment"
+//                   value={stats.pendingAssignment}
+//                   prefix={<ClockCircleOutlined />}
+//                   valueStyle={{ color: '#faad14' }}
+//                 />
+//               </Card>
+//             </Col>
+//             <Col span={6}>
+//               <Card>
+//                 <Statistic
+//                   title="Assigned Today"
+//                   value={stats.assignedToday}
+//                   prefix={<CheckCircleOutlined />}
+//                   valueStyle={{ color: '#52c41a' }}
+//                 />
+//               </Card>
+//             </Col>
+//             <Col span={6}>
+//               <Card>
+//                 <Statistic
+//                   title="Rejected Today"
+//                   value={stats.rejectedToday}
+//                   prefix={<CloseCircleOutlined />}
+//                   valueStyle={{ color: '#ff4d4f' }}
+//                 />
+//               </Card>
+//             </Col>
+//             <Col span={6}>
+//               <Card>
+//                 <Statistic
+//                   title="In Approval Chain"
+//                   value={stats.inApprovalChain}
+//                   prefix={<ShopOutlined />}
+//                   valueStyle={{ color: '#1890ff' }}
+//                 />
+//               </Card>
+//             </Col>
+//           </Row>
+//         )}
+
+//         {/* Filters */}
+//         <Card size="small" style={{ marginBottom: '16px', backgroundColor: '#fafafa' }}>
+//           <Row gutter={16}>
+//             <Col span={8}>
+//               <Select
+//                 placeholder="Filter by Service Category"
+//                 style={{ width: '100%' }}
+//                 allowClear
+//                 value={filters.serviceCategory}
+//                 onChange={(value) => setFilters(prev => ({ ...prev, serviceCategory: value }))}
+//               >
+//                 <Option value="HSE">HSE</Option>
+//                 <Option value="Refurbishment">Refurbishment</Option>
+//                 <Option value="Project">Project</Option>
+//                 <Option value="Operations">Operations</Option>
+//                 <Option value="Diesel">Diesel</Option>
+//                 <Option value="Supply Chain">Supply Chain</Option>
+//                 <Option value="HR/Admin">HR/Admin</Option>
+//                 <Option value="General">General</Option>
+//               </Select>
+//             </Col>
+//             <Col span={8}>
+//               <Select
+//                 placeholder="Filter by Supplier Type"
+//                 style={{ width: '100%' }}
+//                 allowClear
+//                 value={filters.supplierType}
+//                 onChange={(value) => setFilters(prev => ({ ...prev, supplierType: value }))}
+//               >
+//                 <Option value="Materials">Materials</Option>
+//                 <Option value="Services">Services</Option>
+//                 <Option value="Equipment">Equipment</Option>
+//                 <Option value="Contractor">Contractor</Option>
+//               </Select>
+//             </Col>
+//           </Row>
+//         </Card>
+
+//         {/* Bulk Actions Alert */}
+//         {selectedInvoices.length > 0 && (
+//           <Alert
+//             message={`${selectedInvoices.length} invoice(s) selected`}
+//             description="Note: Bulk assignment requires signing each invoice individually. Use single assignment for document signing workflow."
+//             type="info"
+//             showIcon
+//             action={
+//               <Button size="small" onClick={() => setSelectedInvoices([])}>
+//                 Clear Selection
+//               </Button>
+//             }
+//             style={{ marginBottom: '16px' }}
+//           />
+//         )}
+
+//         <Table
+//           columns={columns}
+//           dataSource={invoices}
+//           loading={loading}
+//           rowKey="_id"
+//           scroll={{ x: 1300 }}
+//           size="small"
+//           pagination={{
+//             showSizeChanger: true,
+//             showQuickJumper: true,
+//             showTotal: (total) => `Total ${total} invoices`
+//           }}
+//         />
+//       </Card>
+
+//       {/* Assignment Modal with Signing Workflow */}
+//       <Modal
+//         title={
+//           <Space>
+//             <SendOutlined />
+//             Sign & Assign Invoice to Department
+//           </Space>
+//         }
+//         open={assignModalVisible}
+//         onCancel={() => {
+//           setAssignModalVisible(false);
+//           resetAssignmentForm();
+//         }}
+//         footer={null}
+//         width={700}
+//         maskClosable={false}
+//       >
+//         {selectedInvoice && (
+//           <div>
+//             {/* Invoice Info */}
+//             <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f0f8ff' }}>
+//               <Descriptions size="small" column={2}>
+//                 <Descriptions.Item label="Invoice">{selectedInvoice.invoiceNumber}</Descriptions.Item>
+//                 <Descriptions.Item label="PO">{selectedInvoice.poNumber}</Descriptions.Item>
+//                 <Descriptions.Item label="Supplier">{selectedInvoice.supplierDetails?.companyName}</Descriptions.Item>
+//                 <Descriptions.Item label="Amount">
+//                   {selectedInvoice.currency} {selectedInvoice.invoiceAmount.toLocaleString()}
+//                 </Descriptions.Item>
+//               </Descriptions>
+//             </Card>
+
+//             {/* Workflow Steps */}
+//             <Steps current={currentStep} style={{ marginBottom: 24 }}>
+//               <Step title="Download" icon={<DownloadOutlined />} description="Get invoice" />
+//               <Step title="Sign" icon={<FileTextOutlined />} description="Sign document" />
+//               <Step title="Upload" icon={<UploadOutlined />} description="Upload signed" />
+//               <Step title="Assign" icon={<SendOutlined />} description="Complete" />
+//             </Steps>
+
+//             <Divider />
+
+//             {/* Step 1: Download Invoice */}
+//             <Card 
+//               size="small" 
+//               style={{ 
+//                 marginBottom: 16, 
+//                 backgroundColor: currentStep === 0 ? '#fff7e6' : '#f5f5f5',
+//                 borderColor: currentStep === 0 ? '#faad14' : '#d9d9d9'
+//               }}
+//             >
+//               <Space direction="vertical" style={{ width: '100%' }}>
+//                 <Text strong>
+//                   <DownloadOutlined /> Step 1: Download Invoice for Signing
+//                 </Text>
+//                 <Button
+//                   type={currentStep === 0 ? 'primary' : 'default'}
+//                   icon={<DownloadOutlined />}
+//                   loading={downloadingInvoice}
+//                   onClick={handleDownloadInvoice}
+//                   disabled={documentDownloaded}
+//                   block
+//                 >
+//                   {documentDownloaded ? 'Invoice Downloaded ✓' : 'Download Invoice Document'}
+//                 </Button>
+//                 {documentDownloaded && (
+//                   <Alert
+//                     message="Downloaded successfully. Please sign the document manually (print & scan or digital signature)."
+//                     type="success"
+//                     showIcon
+//                     style={{ marginTop: 8 }}
+//                   />
+//                 )}
+//               </Space>
+//             </Card>
+
+//             {/* Step 2: Upload Signed Document */}
+//             <Card 
+//               size="small" 
+//               style={{ 
+//                 marginBottom: 16,
+//                 backgroundColor: currentStep === 1 ? '#fff7e6' : '#f5f5f5',
+//                 borderColor: currentStep === 1 ? '#faad14' : '#d9d9d9'
+//               }}
+//             >
+//               <Space direction="vertical" style={{ width: '100%' }}>
+//                 <Text strong>
+//                   <UploadOutlined /> Step 2: Upload Signed Document {!signedDocumentFile && <Text type="danger">*</Text>}
+//                 </Text>
+//                 <Dragger
+//                   accept=".pdf,.jpg,.jpeg,.png"
+//                   maxCount={1}
+//                   beforeUpload={(file) => {
+//                     handleFileUpload({ file });
+//                     return false;
+//                   }}
+//                   onRemove={() => {
+//                     setSignedDocumentFile(null);
+//                     setCurrentStep(1);
+//                   }}
+//                   disabled={!documentDownloaded}
+//                   fileList={signedDocumentFile ? [{
+//                     uid: '-1',
+//                     name: signedDocumentFile.name,
+//                     status: 'done',
+//                   }] : []}
+//                 >
+//                   <p className="ant-upload-drag-icon">
+//                     <InboxOutlined />
+//                   </p>
+//                   <p className="ant-upload-text">
+//                     Click or drag signed document to upload
+//                   </p>
+//                   <p className="ant-upload-hint">
+//                     Supports PDF, JPG, PNG (Max 10MB)
+//                   </p>
+//                 </Dragger>
+//                 {!documentDownloaded && (
+//                   <Alert
+//                     message="Please download the invoice first before uploading signed version"
+//                     type="warning"
+//                     showIcon
+//                     style={{ marginTop: 8 }}
+//                   />
+//                 )}
+//               </Space>
+//             </Card>
+
+//             {/* Step 3: Select Department */}
+//             <Card 
+//               size="small" 
+//               style={{ 
+//                 marginBottom: 16,
+//                 backgroundColor: currentStep === 2 ? '#fff7e6' : '#f5f5f5',
+//                 borderColor: currentStep === 2 ? '#faad14' : '#d9d9d9'
+//               }}
+//             >
+//               <Space direction="vertical" style={{ width: '100%' }}>
+//                 <Text strong>Step 3: Select Department {!assignDepartment && <Text type="danger">*</Text>}</Text>
+//                 <Select 
+//                   placeholder="Choose department for assignment" 
+//                   size="large"
+//                   style={{ width: '100%' }}
+//                   value={assignDepartment}
+//                   onChange={(value) => {
+//                     setAssignDepartment(value);
+//                     if (value && signedDocumentFile) {
+//                       setCurrentStep(3);
+//                     }
+//                   }}
+//                   disabled={!signedDocumentFile}
+//                 >
+//                   <Option value="Technical">
+//                     <div>
+//                       <Text strong>Technical</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Didier Oyong</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="Technical Operations">
+//                     <div>
+//                       <Text strong>Technical Operations</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Pascal Assam</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="Technical HSE">
+//                     <div>
+//                       <Text strong>Technical HSE</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Ovo Bechem</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="Business Development & Supply Chain">
+//                     <div>
+//                       <Text strong>Business Development & Supply Chain</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. E.T Kelvin</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="HR/Admin">
+//                     <div>
+//                       <Text strong>HR & Admin</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mrs. Bruiline Tsitoh</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="IT">
+//                     <div>
+//                       <Text strong>IT</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Marcel Ngong</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="Finance">
+//                     <div>
+//                       <Text strong>Finance</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Ms. Ranibell Mambo</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="Operations">
+//                     <div>
+//                       <Text strong>Operations</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Pascal Assam</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="HSE">
+//                     <div>
+//                       <Text strong>HSE</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Ovo Bechem</Text>
+//                     </div>
+//                   </Option>
+//                   <Option value="Supply Chain">
+//                     <div>
+//                       <Text strong>Supply Chain</Text>
+//                       <br /><Text type="secondary" style={{ fontSize: 11 }}>Head: Mr. Lukong Lambert</Text>
+//                     </div>
+//                   </Option>
+//                 </Select>
+//               </Space>
+//             </Card>
+
+//             {/* Step 4: Comments (Optional) */}
+//             <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f5f5f5' }}>
+//               <Space direction="vertical" style={{ width: '100%' }}>
+//                 <Text strong>Step 4: Assignment Comments (Optional)</Text>
+//                 <TextArea 
+//                   rows={3} 
+//                   placeholder="Add any comments about this assignment..."
+//                   maxLength={300}
+//                   showCount
+//                   value={assignComments}
+//                   onChange={(e) => setAssignComments(e.target.value)}
+//                   disabled={!assignDepartment || !signedDocumentFile}
+//                 />
+//               </Space>
+//             </Card>
+
+//             {/* Action Buttons */}
+//             <Space style={{ marginTop: 16, width: '100%', justifyContent: 'flex-end' }}>
+//               <Button onClick={() => {
+//                 setAssignModalVisible(false);
+//                 resetAssignmentForm();
+//               }}>
+//                 Cancel
+//               </Button>
+//               <Button 
+//                 type="primary" 
+//                 onClick={handleAssign}
+//                 loading={loading}
+//                 icon={<SendOutlined />}
+//                 disabled={!assignDepartment || !signedDocumentFile}
+//                 size="large"
+//               >
+//                 Sign & Assign Invoice
+//               </Button>
+//             </Space>
+
+//             {/* Help Alert */}
+//             <Alert
+//               message="Assignment will auto-approve at Supply Chain level"
+//               description="Once assigned, the invoice will move to the Department Head for their review and signature."
+//               type="info"
+//               showIcon
+//               style={{ marginTop: 16 }}
+//             />
+//           </div>
+//         )}
+//       </Modal>
+
+//       {/* Rejection Modal */}
+//       <Modal
+//         title={
+//           <Space>
+//             <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+//             Reject Invoice
+//           </Space>
+//         }
+//         open={rejectModalVisible}
+//         onCancel={() => {
+//           setRejectModalVisible(false);
+//           setSelectedInvoice(null);
+//           setRejectReason('');
+//         }}
+//         footer={null}
+//         width={500}
+//       >
+//         <Alert
+//           message="Rejection Notice"
+//           description="The supplier will be able to resubmit a corrected invoice after rejection."
+//           type="warning"
+//           showIcon
+//           style={{ marginBottom: '16px' }}
+//         />
+
+//         <div>
+//           <div style={{ marginBottom: 16 }}>
+//             <Text strong>Rejection Reason:</Text>
+//             <TextArea 
+//               rows={4} 
+//               placeholder="Explain why this invoice is being rejected..."
+//               maxLength={500}
+//               showCount
+//               style={{ marginTop: 8 }}
+//               value={rejectReason}
+//               onChange={(e) => setRejectReason(e.target.value)}
+//             />
+//           </div>
+
+//           <Space style={{ marginTop: 16 }}>
+//             <Button onClick={() => {
+//               setRejectModalVisible(false);
+//               setSelectedInvoice(null);
+//               setRejectReason('');
+//             }}>
+//               Cancel
+//             </Button>
+//             <Button 
+//               danger
+//               type="primary" 
+//               onClick={handleReject}
+//               loading={loading}
+//               icon={<CloseCircleOutlined />}
+//             >
+//               Reject Invoice
+//             </Button>
+//           </Space>
+//         </div>
+//       </Modal>
+
+//       {/* Details Modal */}
+//       <Modal
+//         title={<Space><FileTextOutlined /> Invoice Details</Space>}
+//         open={detailsModalVisible}
+//         onCancel={() => {
+//           setDetailsModalVisible(false);
+//           setSelectedInvoice(null);
+//         }}
+//         footer={null}
+//         width={900}
+//       >
+//         {selectedInvoice && (
+//           <div>
+//             <Descriptions bordered column={2} size="small" style={{ marginBottom: 20 }}>
+//               <Descriptions.Item label="PO Number" span={2}>
+//                 <Text code copyable>{selectedInvoice.poNumber}</Text>
+//               </Descriptions.Item>
+//               <Descriptions.Item label="Invoice Number">
+//                 {selectedInvoice.invoiceNumber}
+//               </Descriptions.Item>
+//               <Descriptions.Item label="Amount">
+//                 <Text strong>{selectedInvoice.currency} {selectedInvoice.invoiceAmount.toLocaleString()}</Text>
+//               </Descriptions.Item>
+//               <Descriptions.Item label="Supplier Company" span={2}>
+//                 <div>
+//                   <Text strong>{selectedInvoice.supplierDetails?.companyName}</Text>
+//                   <br />
+//                   <Text type="secondary">{selectedInvoice.supplierDetails?.contactName}</Text>
+//                 </div>
+//               </Descriptions.Item>
+//               <Descriptions.Item label="Supplier Type">
+//                 <Tag color="green">{selectedInvoice.supplierDetails?.supplierType}</Tag>
+//               </Descriptions.Item>
+//               <Descriptions.Item label="Service Category">
+//                 <Tag color="purple">{selectedInvoice.serviceCategory}</Tag>
+//               </Descriptions.Item>
+//               <Descriptions.Item label="Submitted Date" span={2}>
+//                 {new Date(selectedInvoice.uploadedDate).toLocaleDateString('en-GB')} at {selectedInvoice.uploadedTime}
+//               </Descriptions.Item>
+//               {selectedInvoice.description && (
+//                 <Descriptions.Item label="Description" span={2}>
+//                   <Paragraph>{selectedInvoice.description}</Paragraph>
+//                 </Descriptions.Item>
+//               )}
+//             </Descriptions>
+
+//             {/* Approval Status Tracker - this page previously had no visibility
+//                 into what happens to an invoice after it's assigned */}
+//             <Divider />
+//             <ApprovalStatusTracker invoice={selectedInvoice} onDownloadFile={handleFileDownload} />
+//           </div>
+//         )}
+//       </Modal>
+//       </div>
+//     </App>
+//   );
+// };
+
+// export default SupplyChainInvoiceManagement;

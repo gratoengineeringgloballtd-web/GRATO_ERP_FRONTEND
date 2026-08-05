@@ -339,6 +339,22 @@ const SupplyChainVendorManagement = () => {
     setSupplierModalVisible(true);
   };
 
+  // const handleEditSupplier = (supplier) => {
+  //   setSelectedSupplier(supplier);
+  //   form.setFieldsValue({
+  //     fullName: supplier.fullName,
+  //     email: supplier.email,
+  //     companyName: supplier.supplierDetails?.companyName,
+  //     contactName: supplier.supplierDetails?.contactName,
+  //     phoneNumber: supplier.supplierDetails?.phoneNumber,
+  //     address: formatAddress(supplier.supplierDetails?.address),
+  //     supplierType: supplier.supplierDetails?.supplierType,
+  //     businessRegistrationNumber: supplier.supplierDetails?.businessRegistrationNumber,
+  //     taxIdNumber: supplier.supplierDetails?.taxIdNumber
+  //   });
+  //   setSupplierModalVisible(true);
+  // };
+
   const handleEditSupplier = (supplier) => {
     setSelectedSupplier(supplier);
     form.setFieldsValue({
@@ -350,7 +366,16 @@ const SupplyChainVendorManagement = () => {
       address: formatAddress(supplier.supplierDetails?.address),
       supplierType: supplier.supplierDetails?.supplierType,
       businessRegistrationNumber: supplier.supplierDetails?.businessRegistrationNumber,
-      taxIdNumber: supplier.supplierDetails?.taxIdNumber
+      taxIdNumber: supplier.supplierDetails?.taxIdNumber,
+      businessType: supplier.supplierDetails?.businessType,
+      establishedYear: supplier.supplierDetails?.businessInfo?.yearsInBusiness || supplier.supplierDetails?.establishedYear,
+      employeeCount: supplier.supplierDetails?.employeeCount,
+      alternatePhone: supplier.supplierDetails?.alternatePhone,
+      website: supplier.supplierDetails?.website || supplier.supplierDetails?.businessInfo?.website,
+      bankName: supplier.supplierDetails?.bankDetails?.bankName,
+      accountName: supplier.supplierDetails?.bankDetails?.accountName,
+      accountNumber: supplier.supplierDetails?.bankDetails?.accountNumber,
+      routingNumber: supplier.supplierDetails?.bankDetails?.routingNumber
     });
     setSupplierModalVisible(true);
   };
@@ -364,17 +389,49 @@ const SupplyChainVendorManagement = () => {
     }
   };
 
+  // const handleSubmitSupplier = async (values) => {
+  //   try {
+  //     setLoading(true);
+  
+  //     const formData = new FormData();
+      
+  //     Object.keys(values).forEach(key => {
+  //       if (values[key] !== undefined && values[key] !== null) {
+  //         formData.append(key, values[key]);
+  //       }
+  //     });
+
+  //     Object.keys(fileLists).forEach(key => {
+  //       if (fileLists[key] && fileLists[key].length > 0) {
+  //         fileLists[key].forEach(file => {
+  //           formData.append(key, file.originFileObj);
+  //         });
+  //       }
+  //     });
+  
+  //     console.log('Frontend: Submitting supplier data via FormData');
+  
+  //     const response = await supplierApiService.submitOnboarding(formData);
   const handleSubmitSupplier = async (values) => {
     try {
       setLoading(true);
-  
+
       const formData = new FormData();
-      
-      Object.keys(values).forEach(key => {
-        if (values[key] !== undefined && values[key] !== null) {
-          formData.append(key, values[key]);
+
+      const { bankName, accountName, accountNumber, routingNumber, ...rest } = values;
+
+      Object.keys(rest).forEach(key => {
+        if (rest[key] !== undefined && rest[key] !== null && rest[key] !== '') {
+          formData.append(key, rest[key]);
         }
       });
+
+      // Bundle bank fields into a single JSON field the backend can parse
+      if (bankName || accountName || accountNumber || routingNumber) {
+        formData.append('bankDetails', JSON.stringify({
+          bankName, accountName, accountNumber, routingNumber
+        }));
+      }
 
       Object.keys(fileLists).forEach(key => {
         if (fileLists[key] && fileLists[key].length > 0) {
@@ -383,9 +440,7 @@ const SupplyChainVendorManagement = () => {
           });
         }
       });
-  
-      console.log('Frontend: Submitting supplier data via FormData');
-  
+
       const response = await supplierApiService.submitOnboarding(formData);
   
       if (response.success) {
@@ -927,6 +982,76 @@ const SupplyChainVendorManagement = () => {
               <Col span={12}>
                 <Form.Item name="taxIdNumber" label="Tax ID Number">
                   <Input placeholder="M051234567890J" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* NEW: Business details */}
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="businessType" label="Business Type">
+                  <Select placeholder="Select business type" allowClear>
+                    <Option value="Sole Proprietorship">Sole Proprietorship</Option>
+                    <Option value="Partnership">Partnership</Option>
+                    <Option value="Limited Company">Limited Company</Option>
+                    <Option value="Corporation">Corporation</Option>
+                    <Option value="NGO">NGO</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="establishedYear" label="Established Year">
+                  <Input type="number" placeholder="2015" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="employeeCount" label="Employee Count">
+                  <Select placeholder="Select range" allowClear>
+                    <Option value="1-10">1-10</Option>
+                    <Option value="11-50">11-50</Option>
+                    <Option value="51-200">51-200</Option>
+                    <Option value="200+">200+</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="alternatePhone" label="Alternate Phone">
+                  <Input placeholder="+237 699 000 000" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="website" label="Website">
+                  <Input placeholder="https://supplier.cm" />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            {/* NEW: Bank details */}
+            <Title level={4}>Bank Details</Title>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="bankName" label="Bank Name">
+                  <Input placeholder="Afriland First Bank" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="accountName" label="Account Name">
+                  <Input placeholder="Account holder name" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="accountNumber" label="Account Number">
+                  <Input placeholder="0000123456789" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="routingNumber" label="Routing / SWIFT Code">
+                  <Input placeholder="CCEICMCX" />
                 </Form.Item>
               </Col>
             </Row>

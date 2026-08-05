@@ -48,7 +48,8 @@ import {
   LoadingOutlined,
   QuestionCircleOutlined,
   MessageOutlined,
-  StopOutlined
+  StopOutlined,
+  AuditOutlined
 } from '@ant-design/icons';
 import AttachmentDisplay from '../../components/AttachmentDisplay';
 
@@ -83,6 +84,29 @@ const apiService = {
       return data;
     } catch (error) {
       console.error('API Error - getSupplyChainRequisitions:', error);
+      throw error;
+    }
+  },
+
+  // Add inside the apiService object:
+  makeJustificationDecision: async (requisitionId, data) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${API_BASE_URL}/purchase-requisitions/${requisitionId}/justification-decision`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        }
+      );
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || `HTTP ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('makeJustificationDecision error:', error);
       throw error;
     }
   },
@@ -279,12 +303,20 @@ const EnhancedSupplyChainRequisitionManagement = () => {
   const [cancellationComments, setCancellationComments] = useState('');
   const [cancellationActionLoading, setCancellationActionLoading] = useState(false);
 
+  const [justifications, setJustifications]         = useState([]);
+  const [justDrawerVisible, setJustDrawerVisible]   = useState(false);
+  const [selectedJust, setSelectedJust]             = useState(null);
+  const [justDecision, setJustDecision]             = useState('');
+  const [justComments, setJustComments]             = useState('');
+  const [justActionLoading, setJustActionLoading]   = useState(false);
+
 
   // Initial data loading
   useEffect(() => {
     fetchRequisitions();
     fetchAvailableBuyers();
     fetchCancellationRequests();
+    fetchSCJustifications();
   }, []);
 
   // API Functions
@@ -307,6 +339,50 @@ const EnhancedSupplyChainRequisitionManagement = () => {
       setLoading(false);
     }
   };
+
+  const fetchSCJustifications = async () => {
+    try {
+      const response = await apiService.getSupplyChainRequisitions();
+      if (response.success) {
+        setJustifications(
+          (response.data || []).filter(r => r.status === 'justification_pending_supply_chain')
+        );
+      }
+    } catch (error) {
+      console.error('Error fetching SC justifications:', error);
+    }
+  };
+
+  const handleSCJustificationDecision = async () => {
+    if (!justDecision) { message.error('Please select a decision'); return; }
+    if (!justComments || justComments.trim().length < 10) {
+      message.error('Please provide comments (at least 10 characters)');
+      return;
+    }
+    try {
+      setJustActionLoading(true);
+      const response = await apiService.makeJustificationDecision(
+        selectedJust._id,
+        { decision: justDecision, comments: justComments }
+      );
+      if (response.success) {
+        message.success(`Justification ${justDecision === 'approved' ? 'approved' : 'rejected'}`);
+        setJustDrawerVisible(false);
+        setSelectedJust(null);
+        setJustDecision('');
+        setJustComments('');
+        fetchSCJustifications();
+      } else {
+        message.error(response.message || 'Failed');
+      }
+    } catch (error) {
+      message.error(error.message || 'Failed');
+    } finally {
+      setJustActionLoading(false);
+    }
+  };
+  
+
 
   const fetchAvailableBuyers = async () => {
     setBuyersLoading(true);
@@ -1172,31 +1248,103 @@ const EnhancedSupplyChainRequisitionManagement = () => {
             />
           </Tabs.TabPane>
           <Tabs.TabPane
-  tab={
-    <Badge count={stats.cancellations} size="small">
-      <span><StopOutlined /> Cancellation Requests ({stats.cancellations})</span>
-    </Badge>
-  }
-  key="cancellations"
->
-  {cancellationLoading ? (
-    <div style={{ textAlign: 'center', padding: '40px' }}><Spin /></div>
-  ) : cancellationRequests.length === 0 ? (
-    <Empty
-      description="No cancellation requests awaiting your decision"
-      image={Empty.PRESENTED_IMAGE_SIMPLE}
-    />
-  ) : (
-    <Table
-      columns={columns}
-      dataSource={cancellationRequests}
-      rowKey="_id"
-      loading={cancellationLoading}
-      pagination={{ pageSize: 10 }}
-      scroll={{ x: 'max-content' }}
-    />
-  )}
-</Tabs.TabPane>
+            tab={
+              <Badge count={stats.cancellations} size="small">
+                <span><StopOutlined /> Cancellation Requests ({stats.cancellations})</span>
+              </Badge>
+            }
+            key="cancellations"
+          >
+            {cancellationLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}><Spin /></div>
+            ) : cancellationRequests.length === 0 ? (
+              <Empty
+                description="No cancellation requests awaiting your decision"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              />
+            ) : (
+              <Table
+                columns={columns}
+                dataSource={cancellationRequests}
+                rowKey="_id"
+                loading={cancellationLoading}
+                pagination={{ pageSize: 10 }}
+                scroll={{ x: 'max-content' }}
+              />
+            )}
+          </Tabs.TabPane>
+          <Tabs.TabPane
+            tab={<Badge count={justifications.length} size="small"><span><FileTextOutlined /> Justifications ({justifications.length})</span></Badge>}
+            key="justifications_sc"
+          >
+            {justifications.length === 0 ? (
+              <Empty description="No justifications pending supply chain review" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <Table
+                dataSource={justifications}
+                rowKey="_id"
+                size="small"
+                pagination={{ pageSize: 10 }}
+                columns={[
+                  {
+                    title: 'Requisition',
+                    key: 'req',
+                    render: (_, r) => (
+                      <div>
+                        <Text strong>{r.title}</Text><br />
+                        <Text code style={{ fontSize: '11px' }}>{r.requisitionNumber}</Text>
+                      </div>
+                    ),
+                    width: 200
+                  },
+                  {
+                    title: 'Employee',
+                    key: 'emp',
+                    render: (_, r) => (
+                      <div>
+                        <Text strong>{r.employee?.fullName || 'N/A'}</Text><br />
+                        <Text type="secondary" style={{ fontSize: '11px' }}>{r.employee?.department}</Text>
+                      </div>
+                    ),
+                    width: 160
+                  },
+                  {
+                    title: 'Budget',
+                    key: 'budget',
+                    render: (_, r) => <Text strong>XAF {(r.budgetXAF || 0).toLocaleString()}</Text>,
+                    width: 130
+                  },
+                  {
+                    title: 'Submitted',
+                    key: 'date',
+                    render: (_, r) => r.justification?.submittedDate
+                      ? new Date(r.justification.submittedDate).toLocaleDateString('en-GB')
+                      : '—',
+                    width: 110
+                  },
+                  {
+                    title: 'Actions',
+                    key: 'actions',
+                    render: (_, r) => (
+                      <Button size="small" type="primary" icon={<CheckCircleOutlined />}
+                        onClick={async () => {
+                          try {
+                            const token = localStorage.getItem('token');
+                            const res = await fetch(`${API_BASE_URL}/purchase-requisitions/${r._id}`,
+                              { headers: { Authorization: `Bearer ${token}` } });
+                            const data = await res.json();
+                            if (data.success) { setSelectedJust(data.data); setJustDrawerVisible(true); }
+                          } catch { message.error('Failed to load'); }
+                        }}>
+                        Review
+                      </Button>
+                    ),
+                    width: 100
+                  }
+                ]}
+              />
+            )}
+          </Tabs.TabPane>
         </Tabs>
       </Card>
 
@@ -1985,6 +2133,110 @@ const EnhancedSupplyChainRequisitionManagement = () => {
           </div>
         )}
       </Modal>
+      {/* ── Supply Chain Justification Review Drawer ─────────────────────── */}
+      <Drawer
+        title={<Space><ShoppingCartOutlined />Supply Chain Justification Review</Space>}
+        placement="right"
+        width={860}
+        open={justDrawerVisible}
+        onClose={() => { setJustDrawerVisible(false); setSelectedJust(null); setJustDecision(''); setJustComments(''); }}
+      >
+        {selectedJust && (() => {
+          const j = selectedJust.justification || {};
+          const totalDisbursed = selectedJust.totalDisbursed || 0;
+          const spent    = j.totalSpent || 0;
+          const returned = j.changeReturned || 0;
+          return (
+            <div>
+              <Descriptions bordered column={2} size="small" style={{ marginBottom: '16px' }}>
+                <Descriptions.Item label="Requisition"><Text code>{selectedJust.requisitionNumber}</Text></Descriptions.Item>
+                <Descriptions.Item label="Employee"><Text strong>{selectedJust.employee?.fullName}</Text></Descriptions.Item>
+                <Descriptions.Item label="Budget"><Text strong style={{ color: '#1890ff' }}>XAF {(selectedJust.budgetXAF || 0).toLocaleString()}</Text></Descriptions.Item>
+                <Descriptions.Item label="Disbursed"><Text strong>XAF {totalDisbursed.toLocaleString()}</Text></Descriptions.Item>
+              </Descriptions>
+
+              <Card size="small" title="Financials" style={{ marginBottom: '16px' }}>
+                <Row gutter={16}>
+                  <Col span={8}><Statistic title="Spent" value={spent} prefix="XAF " valueStyle={{ color: '#f5222d' }} /></Col>
+                  <Col span={8}><Statistic title="Returned" value={returned} prefix="XAF " valueStyle={{ color: '#52c41a' }} /></Col>
+                  <Col span={8}><Statistic title="Disbursed" value={totalDisbursed} prefix="XAF " /></Col>
+                </Row>
+              </Card>
+
+              {j.actualExpenses?.length > 0 && (
+                <Card size="small" title="Expenses" style={{ marginBottom: '16px' }}>
+                  <Table
+                    dataSource={j.actualExpenses}
+                    size="small"
+                    pagination={false}
+                    rowKey={(_, i) => i}
+                    columns={[
+                      { title: 'Description', dataIndex: 'description', key: 'desc' },
+                      { title: 'Amount', dataIndex: 'amount', key: 'amt',
+                        render: a => <Text strong>XAF {Number(a||0).toLocaleString()}</Text>, width: 130 }
+                    ]}
+                  />
+                </Card>
+              )}
+
+              {j.justificationSummary && (
+                <Card size="small" title="Summary" style={{ marginBottom: '16px' }}>
+                  <Text>{j.justificationSummary}</Text>
+                </Card>
+              )}
+
+              {/* Prior decisions */}
+              {(j.supervisorReview || j.financeReview) && (
+                <Card size="small" title="Prior Decisions" style={{ marginBottom: '16px' }}>
+                  {j.supervisorReview && (
+                    <div style={{ marginBottom: '8px' }}>
+                      <Text strong>Supervisor: </Text>
+                      <Tag color={j.supervisorReview.decision === 'approved' ? 'green' : 'red'}>
+                        {j.supervisorReview.decision?.toUpperCase()}
+                      </Tag>
+                      {j.supervisorReview.comments && <Text italic> "{j.supervisorReview.comments}"</Text>}
+                    </div>
+                  )}
+                  {j.financeReview && (
+                    <div>
+                      <Text strong>Finance: </Text>
+                      <Tag color={j.financeReview.decision === 'approved' ? 'green' : 'red'}>
+                        {j.financeReview.decision?.toUpperCase()}
+                      </Tag>
+                      {j.financeReview.comments && <Text italic> "{j.financeReview.comments}"</Text>}
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              <Card size="small" title="Supply Chain Decision"
+                style={{ borderColor: '#fa8c16' }} headStyle={{ backgroundColor: '#fff7e6' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <Text strong style={{ display: 'block', marginBottom: '6px' }}>Decision *</Text>
+                    <Select placeholder="Select decision" style={{ width: '100%' }} value={justDecision || undefined} onChange={setJustDecision}>
+                      <Select.Option value="approved"><CheckCircleOutlined style={{ color: '#52c41a' }} /> Approve</Select.Option>
+                      <Select.Option value="rejected"><CloseCircleOutlined style={{ color: '#ff4d4f' }} /> Return for Revision</Select.Option>
+                    </Select>
+                  </div>
+                  <div>
+                    <Text strong style={{ display: 'block', marginBottom: '6px' }}>Comments *</Text>
+                    <TextArea rows={3} placeholder="Supply chain comments…" value={justComments} onChange={e => setJustComments(e.target.value)} showCount maxLength={500} />
+                  </div>
+                  <Space>
+                    <Button type="primary" loading={justActionLoading} icon={<SendOutlined />}
+                      onClick={handleSCJustificationDecision}
+                      style={{ backgroundColor: '#fa8c16', borderColor: '#fa8c16' }}>
+                      Submit Decision
+                    </Button>
+                    <Button onClick={() => { setJustDecision(''); setJustComments(''); }}>Clear</Button>
+                  </Space>
+                </div>
+              </Card>
+            </div>
+          );
+        })()}
+      </Drawer>
     </div>
   );
 };

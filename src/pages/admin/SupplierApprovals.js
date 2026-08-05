@@ -87,27 +87,24 @@ const SupplierApprovals = () => {
 
 
   const fetchPendingApprovals = async () => {
-    try {
-      setLoading(true);
-      console.log('Fetching pending approvals...');
-      
-      const response = await UnifiedSupplierAPI.getPendingApprovals();
-      
-      console.log('API Response:', response);
-      
-      if (response.success) {
-        console.log(`Received ${response.data.length} pending suppliers`);
-        setPendingApprovals(response.data);
-      } else {
-        message.error(response.message || 'Failed to fetch approvals');
-      }
-    } catch (error) {
-      console.error('Error fetching pending approvals:', error);
-      message.error(error.message || 'Failed to fetch pending approvals');
-    } finally {
-      setLoading(false);
+  try {
+    setLoading(true);
+
+    const response = await UnifiedSupplierAPI.getPendingApprovals();
+    console.log('Full response:', JSON.stringify(response, null, 2));
+    console.log('Data count:', response.data?.length);
+    console.log('Statuses found:', response.data?.map(s => s.supplierStatus?.accountStatus));
+
+    if (response.success) {
+      setPendingApprovals(response.data);
     }
-  };
+  } catch (error) {
+    console.error('Error:', error);
+    message.error(error.message || 'Failed to fetch pending approvals');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const fetchStatistics = async () => {
     try {
