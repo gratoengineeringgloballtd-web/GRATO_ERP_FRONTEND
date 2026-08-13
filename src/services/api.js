@@ -142,7 +142,7 @@ export const projectPlanAPI = {
 export const salaryPaymentAPI = {
   create: async (formData) => {
     const response = await api.post('/salary-payments', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': undefined }
     });
     return response.data;
   },
@@ -320,7 +320,7 @@ export const itSupportAPI = {
 
       const response = await api.post('/it-support', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
         timeout: 60000,
       });
@@ -397,7 +397,7 @@ export const itSupportAPI = {
 
       const response = await api.post('/it-support', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
         timeout: 60000,
       });
@@ -515,7 +515,7 @@ export const cashRequestAPI = {
 
     const config = {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        'Content-Type': undefined,
       },
       timeout: 60000, 
     };
@@ -691,7 +691,7 @@ export const cashRequestAPI = {
 
     const config = {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        'Content-Type': undefined,
       },
       timeout: 60000,
     };

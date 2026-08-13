@@ -59,7 +59,7 @@ class ContractApiService {
 
       const response = await api.post('/contracts', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
         timeout: 120000 
       });
@@ -97,7 +97,7 @@ class ContractApiService {
 
       const response = await api.put(`/contracts/${contractId}`, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
         timeout: 120000
       });
@@ -193,7 +193,7 @@ class ContractApiService {
 
       const response = await api.post(`/contracts/${contractId}/amendments`, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
         timeout: 120000
       });
@@ -262,7 +262,7 @@ class ContractApiService {
 
       const response = await api.post(`/contracts/${contractId}/documents`, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
         timeout: 120000
       });

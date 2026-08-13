@@ -10,7 +10,7 @@ import {
   ShoppingCartOutlined, EyeOutlined, SendOutlined, UserOutlined,
   DollarOutlined, CalendarOutlined, FileTextOutlined, CheckCircleOutlined,
   ClockCircleOutlined, MailOutlined, SettingOutlined, TruckOutlined,
-  FilterOutlined, ExportOutlined, GlobalOutlined,
+  FilterOutlined, ExportOutlined, GlobalOutlined, InboxOutlined,
   CopyOutlined, DownloadOutlined, ExclamationCircleOutlined,  CloseCircleOutlined
 } from '@ant-design/icons';
 import moment from 'moment';
@@ -431,6 +431,7 @@ const BuyerRequisitionPortal = () => {
         </Col>
         <Col>
           <Space>
+            <Button icon={<InboxOutlined />} onClick={() => navigate('/buyer/inventory')}>Inventory</Button>
             <Button icon={<ExportOutlined />}>Export Report</Button>
             <Button icon={<FilterOutlined />}>Filters</Button>
           </Space>

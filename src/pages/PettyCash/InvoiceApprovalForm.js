@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   Card, 
@@ -32,6 +33,8 @@ import {
   EyeOutlined
 } from '@ant-design/icons';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
@@ -49,7 +52,7 @@ const InvoiceApprovalForm = () => {
       try {
         setLoading(true);
         // Mock API call - replace with actual API
-        const response = await fetch(`/api/invoice-approval/approvals/${invoiceId}`, {
+        const response = await fetch(`${API_BASE_URL}/invoice-approval/approvals/${invoiceId}`, {
           headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
         });
         const data = await response.json();
@@ -102,7 +105,7 @@ const InvoiceApprovalForm = () => {
         return;
       }
 
-      const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
+      const response = await fetch(`${API_BASE_URL}/files/download/${encodeURIComponent(publicId)}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -153,7 +156,7 @@ const InvoiceApprovalForm = () => {
       console.log('Submitting decision:', payload);
       
       // Mock API call - replace with actual API
-      const response = await fetch(`/api/invoice-approval/approvals/${invoiceId}/decision`, {
+      const response = await fetch(`${API_BASE_URL}/invoice-approval/approvals/${invoiceId}/decision`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

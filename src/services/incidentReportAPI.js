@@ -48,7 +48,7 @@ export const incidentReportsAPI = {
     console.log('API: Creating incident report...');
     const config = {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        'Content-Type': undefined,
       },
       timeout: 60000,
     };

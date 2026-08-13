@@ -1,7 +1,10 @@
 // FinanceApprovalModal.jsx
 import React, { useState, useEffect } from 'react';
+
 import { Modal, Form, Input, InputNumber, Select, Alert, Divider, Typography, Space, Spin, Button, message } from 'antd';
 import { DollarOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const { TextArea } = Input;
 const { Option } = Select;
@@ -35,7 +38,7 @@ const FinanceApprovalModal = ({ visible, onClose, request, onApprove, loading })
       setLoadingBudgets(true);
       console.log('Fetching available budget codes...');
       
-      const response = await fetch('/api/budget-codes/available', {
+      const response = await fetch(`${API_BASE_URL}/budget-codes/available`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -61,7 +64,7 @@ const FinanceApprovalModal = ({ visible, onClose, request, onApprove, loading })
 
   const fetchBudgetCodeDetails = async (budgetCodeId) => {
     try {
-      const response = await fetch(`/api/budget-codes/${budgetCodeId}`, {
+      const response = await fetch(`${API_BASE_URL}/budget-codes/${budgetCodeId}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }

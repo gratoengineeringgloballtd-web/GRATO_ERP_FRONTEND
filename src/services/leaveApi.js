@@ -49,7 +49,7 @@ const leaveApi = {
       console.log('Creating leave request...');
       const response = await api.post('/leave', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
       });
       console.log('Create leave response:', response.data);

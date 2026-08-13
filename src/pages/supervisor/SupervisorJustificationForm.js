@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+
 import { useParams, useNavigate } from 'react-router-dom';
 import DOMPurify from 'dompurify';
 import { 
@@ -31,6 +32,8 @@ import {
 } from '@ant-design/icons';
 import api from '../../services/api';
 import { useSelector } from 'react-redux';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -101,7 +104,7 @@ const SupervisorJustificationForm = ({ requestId: propRequestId, onSuccess, isMo
         return;
       }
 
-      const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
+      const response = await fetch(`${API_BASE_URL}/files/download/${encodeURIComponent(publicId)}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -501,7 +504,7 @@ export default SupervisorJustificationForm;
 //         return;
 //       }
 
-//       const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
+//       const response = await fetch(`${API_BASE_URL}/api/files/download/${encodeURIComponent(publicId)}`, {
 //         method: 'GET',
 //         headers: {
 //           'Authorization': `Bearer ${token}`,

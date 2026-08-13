@@ -1,6 +1,7 @@
 // src/pages/hr/EmployeeProfile.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import {
   Card,
   Row,
@@ -49,10 +50,16 @@ const EmployeeProfile = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
-  
+  const { user: currentUser } = useSelector((state) => state.auth);
+  // Narrow HR exception (see App.js DOCUMENT_ONLY_HR_EMAILS) — she should only ever
+  // interact with the Documents tab on this page, never Personal/Employment/Leave/Performance.
+  const isDocumentOnlyUser = currentUser?.email?.toLowerCase() === 'carmel.dafny@gratoglobal.com';
+
   const [loading, setLoading] = useState(true);
   const [employee, setEmployee] = useState(null);
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'personal');
+  const [activeTab, setActiveTab] = useState(
+    isDocumentOnlyUser ? 'documents' : (searchParams.get('tab') || 'personal')
+  );
   const [leaveBalance, setLeaveBalance] = useState(null);
   const [performanceData, setPerformanceData] = useState(null);
 
@@ -122,7 +129,7 @@ const EmployeeProfile = () => {
     ];
     
     const docs = employee.employmentDetails.documents;
-    const uploaded = requiredDocs.filter(doc => docs[doc] && (docs[doc].filename || docs[doc].filePath)).length;
+    let uploaded = requiredDocs.filter(doc => Array.isArray(docs[doc]) && docs[doc].length > 0).length;
     
     // Add array documents
     if (docs.references && docs.references.length > 0) uploaded += 1;
@@ -309,6 +316,7 @@ const EmployeeProfile = () => {
       <Card>
         <Tabs activeKey={activeTab} onChange={setActiveTab}>
           {/* Personal Information Tab */}
+          {!isDocumentOnlyUser && (
           <TabPane 
             tab={
               <span>
@@ -437,8 +445,10 @@ const EmployeeProfile = () => {
               </>
             )}
           </TabPane>
+          )}
 
           {/* Employment Details Tab */}
+          {!isDocumentOnlyUser && (
           <TabPane 
             tab={
               <span>
@@ -541,6 +551,7 @@ const EmployeeProfile = () => {
               </>
             )}
           </TabPane>
+          )}
 
           {/* Documents Tab */}
           <TabPane 
@@ -559,6 +570,7 @@ const EmployeeProfile = () => {
           </TabPane>
 
           {/* Leave History Tab */}
+          {!isDocumentOnlyUser && (
           <TabPane 
             tab={
               <span>
@@ -642,8 +654,10 @@ const EmployeeProfile = () => {
               </div>
             )}
           </TabPane>
+          )}
 
           {/* Performance Tab */}
+          {!isDocumentOnlyUser && (
           <TabPane 
             tab={
               <span>
@@ -714,6 +728,7 @@ const EmployeeProfile = () => {
               </div>
             )}
           </TabPane>
+          )}
         </Tabs>
       </Card>
     </div>

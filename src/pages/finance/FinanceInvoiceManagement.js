@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import moment from 'moment';
 import {
   Card,
   Table,
@@ -14,6 +15,8 @@ import {
   Select,
   Form,
   Input,
+  InputNumber,
+  DatePicker,
   Divider,
   Badge,
   Tooltip,
@@ -57,6 +60,7 @@ const FinanceInvoiceManagement = () => {
   const [form] = Form.useForm();
   const [bulkForm] = Form.useForm();
   const [approvalForm] = Form.useForm();
+  const [paymentForm] = Form.useForm();
   
   const [invoices, setInvoices] = useState([]);
   const [supplierInvoices, setSupplierInvoices] = useState([]);
@@ -68,6 +72,8 @@ const FinanceInvoiceManagement = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const [assigning, setAssigning] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [paymentTargetInvoice, setPaymentTargetInvoice] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [departmentEmployees, setDepartmentEmployees] = useState([]);
   const [activeTab, setActiveTab] = useState('unassigned');
@@ -231,7 +237,7 @@ const FinanceInvoiceManagement = () => {
       
       const endpoint = isSupplierInvoice 
         ? `/suppliers/supervisor/invoices/${selectedInvoice._id}/decision`
-        : `/invoices/finance/${selectedInvoice._id}/approve`;
+        : `/invoices/supervisor/approve/${selectedInvoice._id}`;
       
       let response;
       
@@ -244,7 +250,7 @@ const FinanceInvoiceManagement = () => {
         
         response = await api.put(endpoint, formData, {
           headers: {
-            'Content-Type': 'multipart/form-data'
+            'Content-Type': undefined
           }
         });
       } else {
@@ -278,7 +284,7 @@ const FinanceInvoiceManagement = () => {
       const isSupplierInvoice = invoice.invoiceType === 'supplier';
       const endpoint = isSupplierInvoice
         ? `/suppliers/admin/invoices/${invoice._id}/process`
-        : `/invoices/finance/${invoice._id}/process`;
+        : `/invoices/finance/process/${invoice._id}`;
       
       const response = await api.put(endpoint, {
         comments: 'Invoice processed and ready for payment'
@@ -291,6 +297,35 @@ const FinanceInvoiceManagement = () => {
     } catch (error) {
       console.error('Error marking as processed:', error);
       message.error('Failed to mark invoice as processed');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleRecordPayment = async (invoice, paymentData) => {
+    try {
+      setProcessing(true);
+
+      const isSupplierInvoice = invoice.invoiceType === 'supplier';
+      const endpoint = isSupplierInvoice
+        ? `/suppliers/admin/invoices/${invoice._id}/payment`
+        : `/invoices/finance/payment/${invoice._id}`;
+
+      const response = isSupplierInvoice
+        ? await api.post(endpoint, paymentData)
+        : await api.put(endpoint, paymentData);
+
+      if (response.data.success) {
+        message.success(response.data.message || 'Payment recorded successfully');
+        setPaymentModalVisible(false);
+        setPaymentTargetInvoice(null);
+        await fetchAllInvoices();
+      } else {
+        message.error(response.data.message || 'Failed to record payment');
+      }
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      message.error(error.response?.data?.message || 'Failed to record payment');
     } finally {
       setProcessing(false);
     }
@@ -620,9 +655,24 @@ const FinanceInvoiceManagement = () => {
               Mark Processed
             </Button>
           )}
+
+          {['approved', 'processed'].includes(record.approvalStatus) && record.status !== 'paid' && (
+            <Button
+              type="default"
+              size="small"
+              icon={<DollarOutlined />}
+              onClick={() => {
+                setPaymentTargetInvoice(record);
+                setPaymentModalVisible(true);
+              }}
+              loading={processing}
+            >
+              Record Payment
+            </Button>
+          )}
         </Space>
       ),
-      width: 140,
+      width: 260,
       fixed: 'right'
     }
   ];
@@ -1157,6 +1207,85 @@ const FinanceInvoiceManagement = () => {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Record Payment Modal */}
+      <Modal
+        title={
+          <Space>
+            <DollarOutlined />
+            Record Payment{paymentTargetInvoice ? ` — ${paymentTargetInvoice.invoiceNumber}` : ''}
+          </Space>
+        }
+        open={paymentModalVisible}
+        onCancel={() => { setPaymentModalVisible(false); setPaymentTargetInvoice(null); paymentForm.resetFields(); }}
+        footer={null}
+        width={520}
+      >
+        {paymentTargetInvoice && (
+          <>
+            <Alert
+              style={{ marginBottom: 16 }}
+              type="info"
+              showIcon
+              message={`Invoice total: ${paymentTargetInvoice.currency || 'XAF'} ${paymentTargetInvoice.totalAmount?.toLocaleString()}`}
+              description="Enter the amount actually received. If it's less than the invoice total, the invoice stays marked 'approved' with the balance outstanding rather than being marked fully paid."
+            />
+            <Form
+              form={paymentForm}
+              layout="vertical"
+              initialValues={{
+                paymentAmount: paymentTargetInvoice.totalAmount,
+                paymentDate: moment(),
+                paymentMethod: 'Bank Transfer'
+              }}
+              onFinish={(values) => handleRecordPayment(paymentTargetInvoice, {
+                paymentAmount: values.paymentAmount,
+                paymentMethod: values.paymentMethod,
+                transactionReference: values.transactionReference,
+                bankReference: values.bankReference,
+                paymentDate: values.paymentDate?.toISOString(),
+                comments: values.comments
+              })}
+            >
+              <Form.Item name="paymentAmount" label="Amount Received" rules={[{ required: true, message: 'Amount is required' }]}>
+                <InputNumber style={{ width: '100%' }} min={0} step={1000}
+                  formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} />
+              </Form.Item>
+              <Form.Item name="paymentDate" label="Payment Date" rules={[{ required: true }]}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="paymentMethod" label="Payment Method" rules={[{ required: true }]}>
+                <Select>
+                  <Option value="Bank Transfer">Bank Transfer</Option>
+                  <Option value="Cheque">Cheque</Option>
+                  <Option value="Cash">Cash</Option>
+                  <Option value="Mobile Money">Mobile Money</Option>
+                  <Option value="Other">Other</Option>
+                </Select>
+              </Form.Item>
+              <Form.Item name="transactionReference" label="Transaction Reference">
+                <Input placeholder="e.g. bank transaction ID" />
+              </Form.Item>
+              <Form.Item name="bankReference" label="Bank Reference">
+                <Input placeholder="Optional" />
+              </Form.Item>
+              <Form.Item name="comments" label="Comments">
+                <Input.TextArea rows={2} />
+              </Form.Item>
+              <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                <Space>
+                  <Button onClick={() => { setPaymentModalVisible(false); setPaymentTargetInvoice(null); paymentForm.resetFields(); }}>
+                    Cancel
+                  </Button>
+                  <Button type="primary" htmlType="submit" loading={processing} icon={<DollarOutlined />}>
+                    Record Payment
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </>
+        )}
       </Modal>
     </div>
   );

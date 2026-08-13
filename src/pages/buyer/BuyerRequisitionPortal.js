@@ -10,7 +10,7 @@ import {
   ShoppingCartOutlined, EyeOutlined, SendOutlined, UserOutlined,
   DollarOutlined, CalendarOutlined, FileTextOutlined, CheckCircleOutlined,
   ClockCircleOutlined, MailOutlined, SettingOutlined, TruckOutlined,
-  FilterOutlined, ExportOutlined, GlobalOutlined,
+  FilterOutlined, ExportOutlined, GlobalOutlined, InboxOutlined,
   CopyOutlined, DownloadOutlined, ExclamationCircleOutlined
 } from '@ant-design/icons';
 import moment from 'moment';
@@ -35,6 +35,7 @@ const BuyerRequisitionPortal = () => {
   const [statsLoading,             setStatsLoading]             = useState(false);
   const [suppliers,                setSuppliers]                = useState([]);
   const [selectedSuppliers,        setSelectedSuppliers]        = useState([]);
+  const [externalSupplierEmails,   setExternalSupplierEmails]   = useState([]);
   const [sourcingForm]   = Form.useForm();
   const [activeTab,      setActiveTab]      = useState('pending');
   const [currentStep,    setCurrentStep]    = useState(0);
@@ -176,6 +177,7 @@ const BuyerRequisitionPortal = () => {
       setSelectedRequisition(record);
       await loadSuppliers(record.category);
       setSelectedSuppliers([]);
+      setExternalSupplierEmails([]);
       sourcingForm.resetFields();
       sourcingForm.setFieldsValue({
         expectedDeliveryDate: record.expectedDeliveryDate
@@ -213,15 +215,27 @@ const BuyerRequisitionPortal = () => {
     }
   };
 
-  const handleSupplierSelectionConfirm = async (supplierData) => {
+  const handleSupplierSelectionConfirm = (supplierData) => {
+    setSelectedSuppliers(supplierData.selectedSuppliers || []);
+    setExternalSupplierEmails(supplierData.externalSupplierEmails || []);
+    setSupplierSelectionVisible(false);
+    const total = (supplierData.selectedSuppliers || []).length + (supplierData.externalSupplierEmails || []).length;
+    message.success(`${total} supplier(s) selected`);
+  };
+
+  const handleSubmitRFQ = async () => {
     try {
       if (!(await validateSourcingForm())) return;
+      if (selectedSuppliers.length === 0 && externalSupplierEmails.length === 0) {
+        message.error('Select at least one supplier before submitting');
+        return;
+      }
       setLoading(true);
 
       const fv = sourcingForm.getFieldsValue(true);
       const rfqData = {
-        selectedSuppliers:      supplierData.selectedSuppliers      || [],
-        externalSupplierEmails: supplierData.externalSupplierEmails || [],
+        selectedSuppliers,
+        externalSupplierEmails,
         expectedDeliveryDate:   fv.expectedDeliveryDate?.toISOString() ?? null,
         quotationDeadline:      fv.quotationDeadline?.toISOString()    ?? null,
         paymentTerms:           fv.paymentTerms        || '30 days',
@@ -263,6 +277,7 @@ const BuyerRequisitionPortal = () => {
               setSourcingDrawerVisible(false);
               setCurrentStep(0);
               setSelectedSuppliers([]);
+              setExternalSupplierEmails([]);
               setSelectedRequisition(null);
               await Promise.all([loadRequisitions(), loadAllRequisitionsForStats()]);
             } else {
@@ -275,13 +290,13 @@ const BuyerRequisitionPortal = () => {
         onCancel: () => setLoading(false)
       });
     } catch (err) {
-      message.error(err.message || 'Failed to process supplier selection');
+      message.error(err.message || 'Failed to process RFQ submission');
       setLoading(false);
     }
   };
 
   const handleSubmitSourcing = async () => {
-    if (await validateSourcingForm()) setSupplierSelectionVisible(true);
+    await handleSubmitRFQ();
   };
 
   // ── acknowledgment handler ───────────────────────────────────────────────
@@ -461,6 +476,7 @@ const BuyerRequisitionPortal = () => {
         </Col>
         <Col>
           <Space>
+            <Button icon={<InboxOutlined />} onClick={() => navigate('/buyer/inventory')}>Inventory</Button>
             <Button icon={<ExportOutlined />}>Export Report</Button>
             <Button icon={<FilterOutlined />}>Filters</Button>
           </Space>
@@ -879,13 +895,13 @@ const BuyerRequisitionPortal = () => {
                 {currentStep < sourcingSteps.length - 1 ? (
                   <Button type="primary"
                     onClick={() => setCurrentStep(s => s + 1)}
-                    disabled={currentStep === 0 && selectedSuppliers.length === 0}>
+                    disabled={currentStep === 0 && selectedSuppliers.length === 0 && externalSupplierEmails.length === 0}>
                     Next
                   </Button>
                 ) : (
                   <Button type="primary" icon={<SendOutlined />}
                     loading={loading} onClick={handleSubmitSourcing}>
-                    Select Suppliers
+                    Send RFQ
                   </Button>
                 )}
               </Space>
@@ -902,11 +918,24 @@ const BuyerRequisitionPortal = () => {
             </Steps>
 
             {currentStep === 0 && (
-              <Alert
-                message="Ready for Supplier Selection"
-                description="Click 'Select Suppliers' to choose registered suppliers and add external supplier emails for this RFQ."
-                type="info" showIcon
-              />
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Alert
+                  message="Ready for Supplier Selection"
+                  description="Click 'Select Suppliers' to choose registered suppliers and add external supplier emails for this RFQ."
+                  type="info" showIcon
+                />
+                <Space>
+                  <Button type="primary" icon={<UserOutlined />}
+                    onClick={() => setSupplierSelectionVisible(true)}>
+                    Select Suppliers
+                  </Button>
+                  {(selectedSuppliers.length + externalSupplierEmails.length) > 0 && (
+                    <Text type="secondary">
+                      {selectedSuppliers.length + externalSupplierEmails.length} supplier(s) selected
+                    </Text>
+                  )}
+                </Space>
+              </Space>
             )}
 
             {currentStep === 1 && (

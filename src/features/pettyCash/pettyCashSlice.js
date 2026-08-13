@@ -26,7 +26,9 @@ export const updateCompanySettings = createAsyncThunk(
             // Check if data is FormData (contains files) or regular object
             if (data instanceof FormData) {
                 requestData = data;
-                headers['Content-Type'] = 'multipart/form-data';
+                // Do NOT set Content-Type explicitly - the browser must compute the
+                // multipart boundary itself, which an explicit header (even this exact
+                // value) suppresses.
             } else {
                 // Convert regular object to FormData for consistency
                 requestData = new FormData();
@@ -35,7 +37,6 @@ export const updateCompanySettings = createAsyncThunk(
                         requestData.append(key, data[key]);
                     }
                 });
-                headers['Content-Type'] = 'multipart/form-data';
             }
 
             const response = await api.put(`/api/pettycash/company/${companyId}`, requestData, {

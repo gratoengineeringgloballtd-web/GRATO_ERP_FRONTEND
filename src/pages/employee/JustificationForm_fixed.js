@@ -262,7 +262,7 @@ const JustificationForm = () => {
         formData, 
         {
           headers: {
-            'Content-Type': 'multipart/form-data',
+            'Content-Type': undefined,
           }
         }
       );

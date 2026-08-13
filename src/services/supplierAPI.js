@@ -257,7 +257,7 @@ class SupplierApiService {
   
       const response = await api.post('/suppliers/invoices', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
         timeout: 120000 
       });
@@ -564,7 +564,7 @@ class SupplierApiService {
         formData, 
         {
           headers: {
-            'Content-Type': 'multipart/form-data',
+            'Content-Type': undefined,
           },
           timeout: 120000 
         }
@@ -704,7 +704,7 @@ class SupplierApiService {
       console.log('API Service: Submitting onboarding application');
       const response = await api.post('/supplier-onboarding/onboarding/submit', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
       });
 

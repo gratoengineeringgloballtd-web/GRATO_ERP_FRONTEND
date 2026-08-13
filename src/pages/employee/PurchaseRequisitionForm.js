@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSelector } from 'react-redux';
+
 import {
   Card,
   Form,
@@ -54,6 +55,8 @@ import { itemAPI } from '../../services/itemAPI';
 import supplierApiService from '../../services/supplierAPI';
 import moment from 'moment';
 import '../../styles/dropdownZIndex.css';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -797,7 +800,7 @@ const EnhancedPurchaseRequisitionForm = ({ onSubmit, onCancel, onSaveDraft, edit
         return;
       }
 
-      const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
+      const response = await fetch(`${API_BASE_URL}/files/download/${encodeURIComponent(publicId)}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -3444,7 +3447,7 @@ export default EnhancedPurchaseRequisitionForm;
 //         return;
 //       }
 
-//       const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
+//       const response = await fetch(`${API_BASE_URL}/api/files/download/${encodeURIComponent(publicId)}`, {
 //         method: 'GET',
 //         headers: {
 //           'Authorization': `Bearer ${token}`,
@@ -6091,7 +6094,7 @@ export default EnhancedPurchaseRequisitionForm;
 // //         return;
 // //       }
 
-// //       const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
+// //       const response = await fetch(`${API_BASE_URL}/api/files/download/${encodeURIComponent(publicId)}`, {
 // //         method: 'GET',
 // //         headers: {
 // //           'Authorization': `Bearer ${token}`,

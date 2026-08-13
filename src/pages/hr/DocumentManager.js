@@ -20,7 +20,6 @@ import {
   UploadOutlined,
   FileOutlined,
   CheckCircleOutlined,
-  DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
   PlusOutlined,
@@ -30,11 +29,9 @@ import {
 import api from '../../services/api';
 
 const { Title, Text } = Typography;
-const { Dragger } = Upload;
 
 const DocumentManager = ({ employeeId, employee, onUpdate }) => {
   const [uploading, setUploading] = useState({});
-  const [deleting, setDeleting] = useState({});
   const [downloading, setDownloading] = useState({});
   const [viewing, setViewing] = useState(false);
   const [viewingFile, setViewingFile] = useState(null);
@@ -46,7 +43,7 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
     { key: 'locationPlan', label: 'Detailed Location Plan', required: true },
     { key: 'medicalCertificate', label: 'Medical Certificate', required: true },
     { key: 'criminalRecord', label: 'Criminal Record', required: true },
-    { key: 'references', label: 'References (3)', required: true, multiple: true, maxCount: 3 },
+    { key: 'references', label: 'References (3)', required: true, multiple: true },
     { key: 'academicDiplomas', label: 'Highest Academic Diplomas', required: true, multiple: true },
     { key: 'workCertificates', label: 'Work Certificates (Previous Employers)', required: false, multiple: true },
     { key: 'employmentContract', label: 'Employment Contract', required: true }
@@ -56,15 +53,8 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
     const docs = employee?.employmentDetails?.documents;
     if (!docs) return null;
 
-    const docType = documentTypes.find(d => d.key === docKey);
-    
-    if (docType.multiple) {
-      const docArray = docs[docKey];
-      return docArray && docArray.length > 0 ? docArray : null;
-    } else {
-      const doc = docs[docKey];
-      return doc && (doc.filename || doc.filePath) ? doc : null;
-    }
+    const docArray = docs[docKey];
+    return Array.isArray(docArray) && docArray.length > 0 ? docArray : null;
   };
 
   const handleUpload = async (docType, file) => {
@@ -85,7 +75,7 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
         formData,
         {
           headers: {
-            'Content-Type': 'multipart/form-data'
+            'Content-Type': undefined
           },
           timeout: 60000,
           onUploadProgress: (progressEvent) => {
@@ -111,35 +101,9 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
     return false; 
   };
 
-  const handleDelete = async (docType, docId = null) => {
-    Modal.confirm({
-      title: 'Delete Document',
-      content: 'Are you sure you want to delete this document? This action cannot be undone.',
-      okText: 'Delete',
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          const deleteKey = docId ? `${docType}-${docId}` : docType;
-          setDeleting(prev => ({ ...prev, [deleteKey]: true }));
-
-          const url = docId 
-            ? `/hr/employees/${employeeId}/documents/${docId}`
-            : `/hr/employees/${employeeId}/documents/${docType}`;
-
-          console.log('Deleting document:', url);
-
-          await api.delete(url);
-          message.success('Document deleted successfully');
-          onUpdate();
-        } catch (error) {
-          console.error('Delete error:', error);
-          message.error(error.response?.data?.message || 'Failed to delete document');
-        } finally {
-          setDeleting(prev => ({ ...prev, [docType]: false }));
-        }
-      }
-    });
-  };
+  // Documents are append-only: there is intentionally no delete function here. Uploading
+  // a new document always adds to the history for that type; nothing already on file is
+  // ever removed. (The backend also hard-rejects delete requests as a second layer.)
 
   const handleDownload = async (docType, doc, index = null) => {
     try {
@@ -216,10 +180,7 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
     const requiredDocs = documentTypes.filter(d => d.required);
     const uploaded = requiredDocs.filter(doc => {
       const status = getDocumentStatus(doc.key);
-      if (doc.multiple) {
-        return status && status.length > 0;
-      }
-      return status !== null;
+      return status && status.length > 0;
     }).length;
 
     return {
@@ -269,8 +230,8 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
       {/* Document Upload Sections */}
       <Row gutter={[16, 16]}>
         {documentTypes.map((docType) => {
-          const status = getDocumentStatus(docType.key);
-          const isUploaded = status !== null;
+          const status = getDocumentStatus(docType.key) || [];
+          const isUploaded = status.length > 0;
           const isUploading = uploading[docType.key];
 
           return (
@@ -285,133 +246,63 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
                     {isUploaded && <CheckCircleOutlined style={{ color: '#52c41a' }} />}
                   </Space>
                 }
-                extra={
-                  isUploaded && !docType.multiple && (
-                    <Space size="small">
-                      <Button
-                        type="link"
-                        size="small"
-                        icon={<EyeOutlined />}
-                        onClick={() => handleView(status)}
-                      />
-                      <Button
-                        type="link"
-                        size="small"
-                        icon={<DownloadOutlined />}
-                        onClick={() => handleDownload(docType.key, status)}
-                        loading={downloading[status._id]}
-                      />
-                      <Button
-                        type="link"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleDelete(docType.key)}
-                        loading={deleting[docType.key]}
-                      />
-                    </Space>
-                  )
-                }
+                extra={isUploaded && <Text type="secondary" style={{ fontSize: '12px' }}>{status.length} on file</Text>}
               >
-                {docType.multiple ? (
-                  <>
-                    {status && status.length > 0 && (
-                      <List
-                        size="small"
-                        dataSource={status}
-                        renderItem={(doc, index) => (
-                          <List.Item
-                            actions={[
-                              <Button
-                                type="link"
-                                size="small"
-                                icon={<EyeOutlined />}
-                                onClick={() => handleView(doc)}
-                              />,
-                              <Button
-                                type="link"
-                                size="small"
-                                icon={<DownloadOutlined />}
-                                onClick={() => handleDownload(docType.key, doc, index)}
-                                loading={downloading[doc._id]}
-                              />,
-                              <Button
-                                type="link"
-                                size="small"
-                                danger
-                                icon={<DeleteOutlined />}
-                                onClick={() => handleDelete(docType.key, doc._id)}
-                                loading={deleting[`${docType.key}-${doc._id}`]}
-                              />
-                            ]}
-                          >
-                            <Space>
-                              <FileOutlined />
-                              <Text ellipsis style={{ maxWidth: '200px' }}>
-                                {doc.name || doc.filename}
-                              </Text>
-                              <Text type="secondary" style={{ fontSize: '11px' }}>
-                                {(doc.size / 1024).toFixed(1)} KB
-                              </Text>
-                            </Space>
-                          </List.Item>
-                        )}
-                        style={{ marginBottom: '12px' }}
-                      />
-                    )}
-
-                    {(!status || status.length < (docType.maxCount || 10)) && (
-                      <Upload
-                        beforeUpload={(file) => handleUpload(docType.key, file)}
-                        showUploadList={false}
-                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                {isUploaded && (
+                  <List
+                    size="small"
+                    dataSource={status}
+                    renderItem={(doc, index) => (
+                      <List.Item
+                        actions={[
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => handleView(doc)}
+                          />,
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            onClick={() => handleDownload(docType.key, doc, index)}
+                            loading={downloading[doc._id]}
+                          />
+                        ]}
                       >
-                        <Button
-                          icon={isUploading ? <LoadingOutlined /> : <PlusOutlined />}
-                          loading={isUploading}
-                          block
-                          size="small"
-                        >
-                          Add {docType.label}
-                        </Button>
-                      </Upload>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {isUploaded ? (
-                      <Space direction="vertical" style={{ width: '100%' }}>
                         <Space>
-                          <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                          <Text strong>Uploaded</Text>
+                          <FileOutlined />
+                          <Text ellipsis style={{ maxWidth: '200px' }}>
+                            {doc.name || doc.filename}
+                          </Text>
+                          <Text type="secondary" style={{ fontSize: '11px' }}>
+                            {(doc.size / 1024).toFixed(1)} KB • {new Date(doc.uploadedAt).toLocaleDateString()}
+                          </Text>
                         </Space>
-                        <Text type="secondary" ellipsis style={{ fontSize: '12px' }}>
-                          {status.name || status.filename}
-                        </Text>
-                        <Text type="secondary" style={{ fontSize: '11px' }}>
-                          {(status.size / 1024).toFixed(1)} KB • {new Date(status.uploadedAt).toLocaleDateString()}
-                        </Text>
-                      </Space>
-                    ) : (
-                      <Dragger
-                        beforeUpload={(file) => handleUpload(docType.key, file)}
-                        showUploadList={false}
-                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                        disabled={isUploading}
-                      >
-                        <p className="ant-upload-drag-icon">
-                          {isUploading ? <LoadingOutlined /> : <UploadOutlined />}
-                        </p>
-                        <p className="ant-upload-text">
-                          {isUploading ? 'Uploading...' : 'Click or drag file to upload'}
-                        </p>
-                        <p className="ant-upload-hint" style={{ fontSize: '11px' }}>
-                          PDF, DOC, DOCX, JPG, PNG (Max 10MB)
-                        </p>
-                      </Dragger>
+                      </List.Item>
                     )}
-                  </>
+                    style={{ marginBottom: '12px' }}
+                  />
                 )}
+
+                {/* Upload is always available, regardless of how many documents already
+                    exist for this type - documents accumulate over time and are never
+                    replaced or capped. */}
+                <Upload
+                  beforeUpload={(file) => handleUpload(docType.key, file)}
+                  showUploadList={false}
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  disabled={isUploading}
+                >
+                  <Button
+                    icon={isUploading ? <LoadingOutlined /> : <PlusOutlined />}
+                    loading={isUploading}
+                    block
+                    size="small"
+                  >
+                    {isUploaded ? `Add another ${docType.label}` : `Upload ${docType.label}`}
+                  </Button>
+                </Upload>
               </Card>
             </Col>
           );

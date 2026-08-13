@@ -9,7 +9,7 @@ const documentSigningAPI = {
   // ── Upload & draft lifecycle ─────────────────────────────────────────────
   uploadDocument: (formData) =>
     api.post('/document-signing/documents', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': undefined }
     }),
 
   saveFields: (documentId, fields) =>

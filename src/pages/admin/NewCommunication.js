@@ -154,7 +154,7 @@ const NewCommunication = () => {
 
       // Create communication
       const response = await api.post('/communications', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': undefined }
       });
 
       const communicationId = response.data.data._id;

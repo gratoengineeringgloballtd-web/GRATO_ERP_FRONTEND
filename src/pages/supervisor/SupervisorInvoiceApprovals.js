@@ -374,8 +374,11 @@ const handleDownloadInvoice = async () => {
       setLoading(true);
       
       const isSupplierInvoice = selectedInvoice.invoiceType === 'supplier';
+      // Only the department-head step (always level 1) requires a signed document -
+      // every later approver (Head of Business, Finance, CEO) just approves or rejects.
+      const requiresSignature = isSupplierInvoice && selectedInvoice.currentApprovalLevel === 1;
       
-      if (isSupplierInvoice && values.decision === 'approved' && !signedDocumentFile) {
+      if (requiresSignature && values.decision === 'approved' && !signedDocumentFile) {
         message.error('Please download, sign, and upload the document before approving.');
         setLoading(false);
         return;
@@ -387,7 +390,7 @@ const handleDownloadInvoice = async () => {
       
       let response;
       
-      if (isSupplierInvoice && values.decision === 'approved') {
+      if (requiresSignature && values.decision === 'approved') {
         const formData = new FormData();
         formData.append('decision', values.decision);
         formData.append('comments', values.comments || '');
@@ -395,7 +398,7 @@ const handleDownloadInvoice = async () => {
         
         response = await api.put(endpoint, formData, {
           headers: {
-            'Content-Type': 'multipart/form-data'
+            'Content-Type': undefined
           }
         });
       } else {
@@ -896,7 +899,8 @@ const handleDownloadInvoice = async () => {
         title={
           <Space>
             <AuditOutlined />
-            {selectedInvoice?.invoiceType === 'supplier' ? 'Sign & Approve Invoice' : 'Invoice Approval Decision'}
+            {selectedInvoice?.invoiceType === 'supplier' && selectedInvoice?.currentApprovalLevel === 1
+              ? 'Sign & Approve Invoice' : 'Invoice Approval Decision'}
           </Space>
         }
         open={approvalModalVisible}
@@ -907,13 +911,15 @@ const handleDownloadInvoice = async () => {
           resetSigningWorkflow();
         }}
         footer={null}
-        width={selectedInvoice?.invoiceType === 'supplier' ? 800 : 700}
+        width={selectedInvoice?.invoiceType === 'supplier' && selectedInvoice?.currentApprovalLevel === 1 ? 800 : 700}
         maskClosable={false}
       >
         {selectedInvoice && (
           <div>
-            {selectedInvoice.invoiceType === 'supplier' ? (
-              // Supplier Invoice Signing Workflow
+            {selectedInvoice.invoiceType === 'supplier' && selectedInvoice.currentApprovalLevel === 1 ? (
+              // Supplier Invoice Signing Workflow - department-head step only (always level 1).
+              // Every later approver (Head of Business, Finance, CEO) just approves or rejects,
+              // same as employee invoices - no document to download, sign, or re-upload.
               <>
                 <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f0f8ff' }}>
                   <Descriptions size="small" column={2}>
@@ -1062,11 +1068,13 @@ const handleDownloadInvoice = async () => {
                 </Form>
               </>
             ) : (
-              // Employee Invoice Simple Approval
+              // Simple Approval (employee invoices, and supplier invoices beyond the
+              // department-head step - Head of Business, Finance, CEO just decide, no
+              // document workflow)
               <>
                 <Alert
                   message="Review Required"
-                  description="Please review and make a decision on this employee invoice."
+                  description={`Please review and make a decision on this ${selectedInvoice.invoiceType === 'supplier' ? 'supplier' : 'employee'} invoice.`}
                   type="info"
                   showIcon
                   style={{ marginBottom: '16px' }}
@@ -1084,8 +1092,10 @@ const handleDownloadInvoice = async () => {
                       {selectedInvoice.currency || 'XAF'} {selectedInvoice.invoiceAmount?.toLocaleString()}
                     </Text>
                   </Descriptions.Item>
-                  <Descriptions.Item label="Employee">
-                    {selectedInvoice.employeeDetails?.name || selectedInvoice.employee?.fullName}
+                  <Descriptions.Item label={selectedInvoice.invoiceType === 'supplier' ? 'Supplier' : 'Employee'}>
+                    {selectedInvoice.invoiceType === 'supplier'
+                      ? selectedInvoice.supplierDetails?.companyName
+                      : (selectedInvoice.employeeDetails?.name || selectedInvoice.employee?.fullName)}
                   </Descriptions.Item>
                 </Descriptions>
 
@@ -1282,7 +1292,7 @@ const handleDownloadInvoice = async () => {
                           )}
                           {step.status === 'approved' && (
                             <>
-                              <Tag color="green">Approved & Signed</Tag>
+                              <Tag color="green">{step.level === 1 ? 'Approved & Signed' : 'Approved'}</Tag>
                               {step.actionDate && (
                                 <Text type="secondary">
                                   {new Date(step.actionDate).toLocaleDateString('en-GB')} 

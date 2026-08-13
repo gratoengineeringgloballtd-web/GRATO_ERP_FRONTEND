@@ -1,6 +1,7 @@
 // src/pages/hr/EmployeeManagement.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import {
   Card,
   Table,
@@ -45,6 +46,10 @@ const { Option } = Select;
 const EmployeeManagement = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user: currentUser } = useSelector((state) => state.auth);
+  // Narrow HR exception (see App.js DOCUMENT_ONLY_HR_EMAILS) — she can browse and open
+  // employee records but should only ever see the document-management action.
+  const isDocumentOnlyUser = currentUser?.email?.toLowerCase() === 'carmel.dafny@gratoglobal.com';
   
   const [loading, setLoading] = useState(false);
   const [employees, setEmployees] = useState([]);
@@ -208,55 +213,67 @@ const EmployeeManagement = () => {
 
   const getActionMenu = (record) => (
     <Menu>
-      <Menu.Item
-        key="view"
-        icon={<EyeOutlined />}
-        onClick={() => navigate(`/hr/employees/${record._id}`)}
-      >
-        View Profile
-      </Menu.Item>
-      <Menu.Item
-        key="edit"
-        icon={<EditOutlined />}
-        onClick={() => navigate(`/hr/employees/${record._id}/edit`)}
-      >
-        Edit Details
-      </Menu.Item>
-      <Menu.Item
-        key="documents"
-        icon={<FolderOutlined />}
-        onClick={() => navigate(`/hr/employees/${record._id}?tab=documents`)}
-      >
-        Manage Documents
-      </Menu.Item>
-      <Menu.Item
-        key="contract"
-        icon={<FileTextOutlined />}
-        onClick={() => navigate(`/hr/employees/${record._id}?tab=employment`)}
-      >
-        View Contract
-      </Menu.Item>
-      <Menu.Divider />
-      <Menu.SubMenu key="status" icon={<UserSwitchOutlined />} title="Change Status">
-        {['Active', 'On Leave', 'Suspended', 'Notice Period', 'Inactive'].map(status => (
+      {isDocumentOnlyUser ? (
+        <Menu.Item
+          key="documents"
+          icon={<FolderOutlined />}
+          onClick={() => navigate(`/hr/employees/${record._id}?tab=documents`)}
+        >
+          Manage Documents
+        </Menu.Item>
+      ) : (
+        <>
           <Menu.Item
-            key={status}
-            onClick={() => handleStatusChange(record._id, status)}
-            disabled={record.employmentDetails?.employmentStatus === status}
+            key="view"
+            icon={<EyeOutlined />}
+            onClick={() => navigate(`/hr/employees/${record._id}`)}
           >
-            {status}
+            View Profile
           </Menu.Item>
-        ))}
-      </Menu.SubMenu>
-      <Menu.Divider />
-      <Menu.Item
-        key="delete"
-        icon={<DeleteOutlined />}
-        danger
-        onClick={() => handleDelete(record._id)}
-      >
-        Deactivate
-      </Menu.Item>
+          <Menu.Item
+            key="edit"
+            icon={<EditOutlined />}
+            onClick={() => navigate(`/hr/employees/${record._id}/edit`)}
+          >
+            Edit Details
+          </Menu.Item>
+          <Menu.Item
+            key="documents"
+            icon={<FolderOutlined />}
+            onClick={() => navigate(`/hr/employees/${record._id}?tab=documents`)}
+          >
+            Manage Documents
+          </Menu.Item>
+          <Menu.Item
+            key="contract"
+            icon={<FileTextOutlined />}
+            onClick={() => navigate(`/hr/employees/${record._id}?tab=employment`)}
+          >
+            View Contract
+          </Menu.Item>
+          <Menu.Divider />
+          <Menu.SubMenu key="status" icon={<UserSwitchOutlined />} title="Change Status">
+            {['Active', 'On Leave', 'Suspended', 'Notice Period', 'Inactive'].map(status => (
+              <Menu.Item
+                key={status}
+                onClick={() => handleStatusChange(record._id, status)}
+                disabled={record.employmentDetails?.employmentStatus === status}
+              >
+                {status}
+              </Menu.Item>
+            ))}
+          </Menu.SubMenu>
+          <Menu.Divider />
+          <Menu.Item
+            key="delete"
+            icon={<DeleteOutlined />}
+            danger
+            onClick={() => handleDelete(record._id)}
+          >
+            Deactivate
+          </Menu.Item>
+        </>
+      )}
     </Menu>
   );
 
@@ -364,7 +381,7 @@ const EmployeeManagement = () => {
         const requiredDocs = 10; // Total required documents
         const uploadedDocs = record.employmentDetails?.documents 
           ? Object.values(record.employmentDetails.documents).filter(doc => 
-              doc && (doc.filename || doc.filePath)
+              Array.isArray(doc) && doc.length > 0
             ).length 
           : 0;
         
@@ -436,13 +453,15 @@ const EmployeeManagement = () => {
                 >
                   Refresh
                 </Button>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => navigate('/hr/employees/new')}
-                >
-                  Add Employee
-                </Button>
+                {!isDocumentOnlyUser && (
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={() => navigate('/hr/employees/new')}
+                  >
+                    Add Employee
+                  </Button>
+                )}
               </Space>
             </Col>
           </Row>

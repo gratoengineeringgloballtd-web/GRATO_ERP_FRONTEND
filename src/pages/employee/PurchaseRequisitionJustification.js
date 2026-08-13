@@ -134,7 +134,7 @@ const PurchaseRequisitionJustification = () => {
       });
 
       const response = await api.post(`/purchase-requisitions/${requisitionId}/justify`, formData, { // ✅ FIXED: Changed from requestId
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': undefined }
       });
 
       if (response.data.success) {

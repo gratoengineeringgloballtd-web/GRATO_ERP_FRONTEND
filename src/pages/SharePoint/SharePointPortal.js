@@ -50,8 +50,12 @@ const SharePointPortal = () => {
   const { user }  = useSelector((state) => state.auth);
 
   const [folders,      setFolders]      = useState([]);
+  const [expandedKeys, setExpandedKeys] = useState([]);
   const [files,        setFiles]        = useState([]);
   const [currentFolder, setCurrentFolder] = useState(null);
+  const [viewMode,      setViewMode]      = useState('folders'); // 'folders' | 'shared'
+  const [sharedFiles,   setSharedFiles]   = useState([]);
+  const [sharedLoading, setSharedLoading] = useState(false);
   const [breadcrumbs,  setBreadcrumbs]  = useState([{ label: 'Home', key: 'home' }]);
   const [searchQuery,  setSearchQuery]  = useState('');
   const [loading,      setLoading]      = useState(true);
@@ -110,6 +114,19 @@ const SharePointPortal = () => {
       else message.error('Failed to load files');
       setFiles([]);
     } finally { setLoading(false); }
+  };
+
+  // Files shared directly with the current user - discoverable here regardless of whether
+  // they have independent folder-level access to wherever the file actually lives.
+  const fetchSharedFiles = async () => {
+    try {
+      setSharedLoading(true);
+      const res = await sharepointAPI.getSharedWithMe();
+      setSharedFiles(res.data.data || []);
+    } catch (err) {
+      message.error('Failed to load files shared with you');
+      setSharedFiles([]);
+    } finally { setSharedLoading(false); }
   };
 
   const fetchStats = async () => {
@@ -195,11 +212,23 @@ const SharePointPortal = () => {
     try {
       setUploadLoading(true);
       const fd = new FormData();
-      uploadedFiles.forEach(f => fd.append('file', f.originFileObj || f));
-      if (values.description) fd.append('description', values.description);
-      if (values.tags)        fd.append('tags', values.tags);
 
-      await sharepointAPI.uploadFile(currentFolder, fd);
+      if (uploadedFiles.length === 1) {
+        // Single-file endpoint expects exactly one file under the field name 'file'.
+        fd.append('file', uploadedFiles[0].originFileObj || uploadedFiles[0]);
+        if (values.description) fd.append('description', values.description);
+        if (values.tags)        fd.append('tags', values.tags);
+        await sharepointAPI.uploadFile(currentFolder, fd);
+      } else {
+        // Multiple files must go to the bulk endpoint, which expects them all under
+        // the field name 'files' (plural) - the single-file endpoint rejects any
+        // file beyond the first one sent under 'file'.
+        uploadedFiles.forEach(f => fd.append('files', f.originFileObj || f));
+        if (values.description) fd.append('description', values.description);
+        if (values.tags)        fd.append('tags', values.tags);
+        await sharepointAPI.bulkUploadFiles(currentFolder, fd);
+      }
+
       message.success(`${uploadedFiles.length} file(s) uploaded`);
       setUploadedFiles([]);
       uploadForm.resetFields();
@@ -392,6 +421,11 @@ const SharePointPortal = () => {
           <FolderOutlined style={{ color: '#faad14' }} />
           <Text>{folder.name}</Text>
           {getPrivacyIcon(folder.privacyLevel)}
+          {folder.fileCount > 0 && (
+            <Tag style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px', padding: '0 6px' }} color="blue">
+              {folder.fileCount} file{folder.fileCount === 1 ? '' : 's'}
+            </Tag>
+          )}
         </div>
       ),
       selectable: true,
@@ -414,6 +448,15 @@ const SharePointPortal = () => {
     selectable: false,
     children: dfs.map(buildFolderNode)
   }));
+
+  // All node keys, used to keep the tree fully expanded (see expandedKeys below).
+  const allTreeKeys = [
+    ...Object.keys(byDept).map(dept => `dept-${dept}`),
+    ...folders.map(f => f._id)
+  ];
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setExpandedKeys(allTreeKeys); }, [folders]);
 
   const currentFolderData = folders.find(f => f._id === currentFolder);
   const filteredFiles = files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -474,12 +517,19 @@ const SharePointPortal = () => {
         <Col xs={24} md={6}>
           <Card title="Folders by Department" size="small" style={{ marginBottom: 16 }}>
             <Button type="text" block icon={<HomeOutlined />}
-              onClick={() => { setCurrentFolder(null); setBreadcrumbs([{ label: 'Home', key: 'home' }]); }}
+              onClick={() => { setViewMode('folders'); setCurrentFolder(null); setBreadcrumbs([{ label: 'Home', key: 'home' }]); }}
               style={{ textAlign: 'left', marginBottom: 8, justifyContent: 'flex-start' }}>
               All Folders
             </Button>
+            <Button type="text" block icon={<ShareAltOutlined />}
+              onClick={() => { setViewMode('shared'); fetchSharedFiles(); }}
+              style={{ textAlign: 'left', marginBottom: 8, justifyContent: 'flex-start' }}>
+              Shared With Me
+            </Button>
             <Divider style={{ margin: '12px 0' }} />
-            <Tree treeData={folderTreeData} selectedKeys={currentFolder ? [currentFolder] : []} defaultExpandAll
+            <Tree treeData={folderTreeData} selectedKeys={currentFolder ? [currentFolder] : []}
+              expandedKeys={expandedKeys}
+              onExpand={(keys) => setExpandedKeys(keys)}
               onSelect={(keys) => {
                 if (keys.length && !keys[0].toString().startsWith('dept-')) {
                   const f = folders.find(f => f._id === keys[0]);
@@ -497,6 +547,39 @@ const SharePointPortal = () => {
 
         {/* Content */}
         <Col xs={24} md={18}>
+          {viewMode === 'shared' ? (
+            <Card title="Files Shared With Me">
+              <Table
+                loading={sharedLoading}
+                dataSource={sharedFiles}
+                rowKey="_id"
+                locale={{ emptyText: 'No files have been shared with you yet' }}
+                columns={[
+                  { title: 'File Name', dataIndex: 'name', key: 'name' },
+                  { title: 'Folder', key: 'folder', render: (_, r) => r.folderId?.name || '—' },
+                  { title: 'Shared By', key: 'sharedBy', render: (_, r) => r.uploadedBy?.fullName || '—' },
+                  {
+                    title: 'Permission', dataIndex: 'sharedPermission', key: 'sharedPermission',
+                    render: (p) => <Tag color="blue">{p}</Tag>
+                  },
+                  {
+                    title: 'Shared', dataIndex: 'sharedAt', key: 'sharedAt',
+                    render: (d) => d ? new Date(d).toLocaleDateString() : '—'
+                  },
+                  {
+                    title: 'Actions', key: 'actions',
+                    render: (_, record) => (
+                      <Space>
+                        <Button type="link" size="small" icon={<DownloadOutlined />}
+                          onClick={() => handleDownloadFile(record)} />
+                      </Space>
+                    )
+                  }
+                ]}
+              />
+            </Card>
+          ) : (
+          <>
           <Breadcrumb style={{ marginBottom: 16 }}>
             {breadcrumbs.map(bc => (
               <Breadcrumb.Item key={bc.key}>
@@ -570,6 +653,8 @@ const SharePointPortal = () => {
                 <Text type="secondary">Browse folders by department from the sidebar</Text>
               </Empty>
             </Card>
+          )}
+          </>
           )}
         </Col>
       </Row>

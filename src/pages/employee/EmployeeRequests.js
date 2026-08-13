@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+
 import { useNavigate } from 'react-router-dom';
 import { 
   Table, 
@@ -35,6 +36,8 @@ import {
   ReloadOutlined
 } from '@ant-design/icons';
 import api from '../../services/api';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
@@ -147,7 +150,7 @@ const EmployeeRequests = () => {
         return;
       }
 
-      const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
+      const response = await fetch(`${API_BASE_URL}/files/download/${encodeURIComponent(publicId)}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -255,7 +258,7 @@ const EmployeeRequests = () => {
       console.log('Sending upload request...');
       const response = await api.post('/api/invoices/upload', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
         timeout: 60000 // 60 second timeout for file uploads
       });

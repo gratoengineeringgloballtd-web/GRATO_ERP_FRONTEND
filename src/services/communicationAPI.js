@@ -13,7 +13,7 @@ const communicationAPI = {
    */
   createCommunication: (formData) => {
     return api.post('/communications', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': undefined }
     });
   },
 
@@ -40,7 +40,7 @@ const communicationAPI = {
    */
   updateCommunication: (id, formData) => {
     return api.put(`/communications/${id}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': undefined }
     });
   },
 

@@ -48,7 +48,7 @@ const vendorService = {
 
       const response = await axios.post(`${API_BASE_URL}/vendors`, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data'
+          'Content-Type': undefined
         }
       });
       return response.data;

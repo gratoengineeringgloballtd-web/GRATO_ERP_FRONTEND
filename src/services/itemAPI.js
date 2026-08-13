@@ -172,7 +172,7 @@ export const itemAPI = {
     try {
       const response = await api.post('/items/import', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          'Content-Type': undefined,
         },
       });
       return {

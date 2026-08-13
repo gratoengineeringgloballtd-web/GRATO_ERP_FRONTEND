@@ -29,7 +29,7 @@ const sharepointAPI = {
 
   // ── FILES ─────────────────────────────────────────────────────────────────────
   uploadFile: (folderId, formData) =>
-    api.post(`/sharepoint/folders/${folderId}/files`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+    api.post(`/sharepoint/folders/${folderId}/files`, formData, { headers: { 'Content-Type': undefined } }),
 
   getFiles:       (folderId, params) => api.get(`/sharepoint/folders/${folderId}/files`, { params }),
   getFileDetails: (fileId)           => api.get(`/sharepoint/files/${fileId}`),
@@ -90,7 +90,7 @@ const sharepointAPI = {
       const formData = new FormData();
       formData.append('file', newFile);
       if (changeNote) formData.append('changeNote', changeNote);
-      return api.post(`/sharepoint/files/${fileId}/checkin`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      return api.post(`/sharepoint/files/${fileId}/checkin`, formData, { headers: { 'Content-Type': undefined } });
     }
     return api.post(`/sharepoint/files/${fileId}/checkin`, { changeNote });
   },
@@ -100,7 +100,7 @@ const sharepointAPI = {
 
   // ── VERSIONS ──────────────────────────────────────────────────────────────────
   createFileVersion: (fileId, formData) =>
-    api.post(`/sharepoint/files/${fileId}/version`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+    api.post(`/sharepoint/files/${fileId}/version`, formData, { headers: { 'Content-Type': undefined } }),
 
   getFileVersions:    (fileId)              => api.get(`/sharepoint/files/${fileId}/versions`),
   restoreFileVersion: (fileId, versionIndex) => api.post(`/sharepoint/files/${fileId}/restore/${versionIndex}`),
@@ -121,6 +121,7 @@ const sharepointAPI = {
 
   // ── USER ──────────────────────────────────────────────────────────────────────
   getUserFiles:   (params) => api.get('/sharepoint/my-files', { params }),
+  getSharedWithMe: (params) => api.get('/sharepoint/shared-with-me', { params }),
   getUserStats:   ()       => api.get('/sharepoint/user-stats'),
   searchUsers:    (query)  => api.get('/sharepoint/users/search', { params: { q: query } }),
 
@@ -130,7 +131,7 @@ const sharepointAPI = {
 
   // ── BULK ──────────────────────────────────────────────────────────────────────
   bulkUploadFiles: (folderId, formData) =>
-    api.post(`/sharepoint/folders/${folderId}/bulk-upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+    api.post(`/sharepoint/folders/${folderId}/bulk-upload`, formData, { headers: { 'Content-Type': undefined } }),
 
   // ── ANALYTICS ─────────────────────────────────────────────────────────────────
   getStorageStats:           (params)      => api.get('/sharepoint/stats/storage', { params }),

@@ -146,7 +146,7 @@ const suggestionAPI = {
   
       const response = await api.post('/suggestions', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data'
+          'Content-Type': undefined
         }
       });
   

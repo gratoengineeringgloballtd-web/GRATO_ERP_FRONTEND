@@ -43,6 +43,8 @@ import {
 } from '@ant-design/icons';
 import moment from 'moment';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 const { Option } = Select;
@@ -102,7 +104,7 @@ const ExternalQuoteForm = () => {
     try {
       setLoading(true);
       
-      const response = await fetch(`/api/external-quote/${invitationToken}/rfq`);
+      const response = await fetch(`${API_BASE_URL}/external-quote/${invitationToken}/rfq`);
       const result = await response.json();
       
       if (result.success) {
@@ -296,7 +298,7 @@ const ExternalQuoteForm = () => {
         termsAccepted: formValues.termsAccepted
       };
 
-      const response = await fetch(`/api/external-quote/${token}/submit`, {
+      const response = await fetch(`${API_BASE_URL}/external-quote/${token}/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

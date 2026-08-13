@@ -339,7 +339,7 @@ class UnifiedSupplierAPI {
   async registerAndOnboard(formData) {
     try {
       const config = {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': undefined }
       };
       const response = await this.api.post('/suppliers/register-onboard', formData, config);
       return response.data;
@@ -494,7 +494,7 @@ class UnifiedSupplierAPI {
         });
 
         payload = formData;
-        config.headers = { 'Content-Type': 'multipart/form-data' };
+        config.headers = { 'Content-Type': undefined };
       } else {
         payload = contractData;
       }
@@ -558,7 +558,7 @@ class UnifiedSupplierAPI {
         });
 
         payload = formData;
-        config.headers = { 'Content-Type': 'multipart/form-data' };
+        config.headers = { 'Content-Type': undefined };
       } else {
         payload = contractData;
       }
@@ -601,7 +601,7 @@ class UnifiedSupplierAPI {
         });
 
         payload = formData;
-        config.headers = { 'Content-Type': 'multipart/form-data' };
+        config.headers = { 'Content-Type': undefined };
       } else {
         payload = amendmentData;
       }
@@ -763,7 +763,7 @@ class UnifiedSupplierAPI {
   async uploadAdditionalDocuments(applicationId, formData) {
     try {
       const config = {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': undefined }
       };
       const response = await this.api.post(
         `/suppliers/admin/onboarding/applications/${applicationId}/documents`,
@@ -828,7 +828,7 @@ class UnifiedSupplierAPI {
   async submitInvoice(formData) {
     try {
       const config = {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': undefined }
       };
       const response = await this.api.post('/suppliers/invoices', formData, config);
       return response.data;
@@ -907,7 +907,7 @@ class UnifiedSupplierAPI {
   async submitQuote(rfqId, formData) {
     try {
       const config = {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': undefined }
       };
       const response = await this.api.post(`/suppliers/rfq-requests/${rfqId}/submit-quote`, formData, config);
       return response.data;

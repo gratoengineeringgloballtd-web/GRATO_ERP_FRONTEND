@@ -52,7 +52,8 @@ import {
   FilePdfOutlined,
   WarningOutlined,
   InboxOutlined,
-  CheckOutlined
+  CheckOutlined,
+  HistoryOutlined
     , MinusCircleOutlined
 } from '@ant-design/icons';
 import moment from 'moment';
@@ -64,6 +65,17 @@ const { TextArea } = Input;
 const { Option } = Select;
 const { TabPane } = Tabs;
 const { Dragger } = Upload;
+
+// Resolves a PO's supplier display name across both storage shapes this codebase uses:
+// the embedded supplierDetails snapshot (direct PO creation) or the populated supplierId
+// reference (quote-to-PO conversion). po.supplier doesn't exist on either shape.
+const getSupplierName = (po) => {
+  if (!po) return '—';
+  return po.supplierDetails?.name
+    || po.supplierId?.fullName
+    || po.supplierId?.supplierDetails?.companyName
+    || '—';
+};
 
 const FinanceInvoicePreparation = () => {
   // ==================== STATE MANAGEMENT ====================
@@ -85,6 +97,9 @@ const FinanceInvoicePreparation = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
+  const [invoiceHistoryVisible, setInvoiceHistoryVisible] = useState(false);
+  const [invoiceHistoryData, setInvoiceHistoryData] = useState(null);
+  const [invoiceHistoryLoading, setInvoiceHistoryLoading] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   
@@ -158,11 +173,11 @@ const FinanceInvoicePreparation = () => {
       
       // Fetch Purchase Orders for Finance
       const [posRes, invoicesRes, suppliersRes, itemsRes] = await Promise.all([
-        api.get('/purchase-orders/finance/for-invoicing')
+        api.get('/invoices/finance/po-list')
           .catch(() => ({ data: { success: false, data: [] } })),
         api.get('/invoices/finance/prepared')
           .catch(() => ({ data: { success: false, data: [] } })),
-        api.get('/suppliers')
+        api.get('/suppliers/admin/all')
           .catch(() => ({ data: { success: false, data: [] } })),
         api.get('/items')
           .catch(() => ({ data: { success: false, data: [] } }))
@@ -201,6 +216,20 @@ const FinanceInvoicePreparation = () => {
   };
 
   // Invoices are isolated from POs; manual creation uses the New Invoice button.
+
+  const openInvoiceHistory = async (po) => {
+    setInvoiceHistoryVisible(true);
+    setInvoiceHistoryLoading(true);
+    try {
+      const response = await api.get(`/invoices/finance/po/${po._id}/history`);
+      setInvoiceHistoryData(response.data.data);
+    } catch (error) {
+      message.error('Failed to load invoice history for this PO');
+      setInvoiceHistoryData(null);
+    } finally {
+      setInvoiceHistoryLoading(false);
+    }
+  };
 
   const openCreateManualInvoice = () => {
     setSelectedPO(null);
@@ -290,6 +319,14 @@ const FinanceInvoicePreparation = () => {
         }
       }
 
+      // If creating from a supplier PO (identified by supplierId, which only supplier PO
+      // records have), send poId so the backend can validate the amount against the PO's
+      // remaining balance and update its cumulative invoicing tracking.
+      if (selectedPO && selectedPO.supplierId) {
+        invoiceData.poId = selectedPO._id;
+        invoiceData.supplierId = typeof selectedPO.supplierId === 'object' ? selectedPO.supplierId._id : selectedPO.supplierId;
+      }
+
       // Add manual payment terms if defined
       if (values.manualPaymentTerms && values.manualPaymentTerms.length > 0) {
         invoiceData.paymentTermsBreakdown = values.manualPaymentTerms.map(term => ({
@@ -342,6 +379,34 @@ const FinanceInvoicePreparation = () => {
         }
       }
     });
+  };
+
+  const handlePrepareInvoiceFromPO = (po) => {
+    const invoiced = po.invoicedAmount || 0;
+    const remaining = po.remainingAmount ?? Math.max(0, (po.totalAmount || 0) - invoiced);
+
+    form.resetFields();
+    form.setFieldsValue({
+      supplier: po.supplierId?._id || po.supplierId,
+      poNumber: po.poNumber,
+      poId: po._id,
+      // Default to the remaining balance, not the full PO amount - this is what makes
+      // partial invoicing the natural default rather than something you have to remember
+      // to adjust for every already-partially-invoiced PO.
+      totalAmount: remaining,
+      invoiceDate: moment(),
+      dueDate: moment().add(30, 'days'),
+      description: `Invoice for ${po.poNumber}${invoiced > 0 ? ' (partial - remaining balance)' : ''}`,
+      items: [{ description: '', quantity: 1, unitPrice: remaining, taxRate: 19.25 }],
+      manualPaymentTerms: []
+    });
+    setSelectedPO(po);
+    setSelectedPaymentTerms([]);
+    setCreateModalVisible(true);
+
+    if (invoiced > 0) {
+      message.info(`This PO has XAF ${invoiced.toLocaleString()} already invoiced. Amount defaulted to the remaining XAF ${remaining.toLocaleString()}.`);
+    }
   };
 
   const handlePrepareInvoiceFromCustomerPO = (customerPO) => {
@@ -415,9 +480,9 @@ const FinanceInvoicePreparation = () => {
     },
     {
       title: 'Supplier',
-      dataIndex: ['supplier', 'name'],
       key: 'supplier',
-      width: 180
+      width: 180,
+      render: (_, record) => getSupplierName(record)
     },
     {
       title: 'Amount',
@@ -442,13 +507,45 @@ const FinanceInvoicePreparation = () => {
       width: 100
     },
     {
-      title: 'Invoiced',
-      dataIndex: 'hasInvoice',
-      key: 'hasInvoice',
-      render: (hasInvoice) => (
-        hasInvoice ? <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '16px' }} /> : <ClockCircleOutlined />
-      ),
-      width: 100
+      title: 'Invoicing Progress',
+      key: 'invoicingProgress',
+      width: 220,
+      render: (_, record) => {
+        const invoiced = record.invoicedAmount || 0;
+        const remaining = record.remainingAmount ?? Math.max(0, (record.totalAmount || 0) - invoiced);
+        const pct = record.totalAmount ? Math.round((invoiced / record.totalAmount) * 100) : 0;
+        const statusTagMap = {
+          not_invoiced: { color: 'default', text: 'Not Invoiced' },
+          partially_invoiced: { color: 'gold', text: 'Partially Invoiced' },
+          fully_invoiced: { color: 'success', text: 'Fully Invoiced' }
+        };
+        const statusInfo = statusTagMap[record.invoicingStatus] || statusTagMap.not_invoiced;
+        return (
+          <Space direction="vertical" size={2} style={{ width: '100%' }}>
+            <Tag color={statusInfo.color}>{statusInfo.text}</Tag>
+            <Progress percent={pct} size="small" showInfo={false} />
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              XAF {invoiced.toLocaleString()} invoiced • {remaining.toLocaleString()} remaining
+            </Text>
+          </Space>
+        );
+      }
+    },
+    {
+      title: 'Invoices',
+      key: 'invoiceHistory',
+      width: 90,
+      render: (_, record) => (
+        <Tooltip title="View invoice history">
+          <Button
+            size="small"
+            icon={<HistoryOutlined />}
+            onClick={() => openInvoiceHistory(record)}
+          >
+            {(record.invoices || []).length}
+          </Button>
+        </Tooltip>
+      )
     },
     {
       title: 'PO Date',
@@ -470,6 +567,15 @@ const FinanceInvoicePreparation = () => {
                 setSelectedPO(record);
                 setDetailDrawerVisible(true);
               }}
+            />
+          </Tooltip>
+          <Tooltip title={record.invoicingStatus === 'fully_invoiced' ? 'Fully invoiced' : 'Create invoice for remaining balance'}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              size="small"
+              disabled={record.invoicingStatus === 'fully_invoiced'}
+              onClick={() => handlePrepareInvoiceFromPO(record)}
             />
           </Tooltip>
         </Space>
@@ -582,9 +688,9 @@ const FinanceInvoicePreparation = () => {
     },
     {
       title: 'Supplier',
-      dataIndex: ['supplier', 'name'],
       key: 'supplier',
-      width: 180
+      width: 180,
+      render: (_, record) => getSupplierName(record)
     },
     {
       title: 'Amount',
@@ -1417,7 +1523,7 @@ const FinanceInvoicePreparation = () => {
               <Tag color="blue">{selectedPO.poNumber}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Supplier">
-              {selectedPO.supplier?.name}
+              {getSupplierName(selectedPO)}
             </Descriptions.Item>
             <Descriptions.Item label="Amount">
               <Text strong style={{ color: '#1890ff' }}>
@@ -1544,6 +1650,60 @@ const FinanceInvoicePreparation = () => {
           </div>
         )}
       </Drawer>
+
+      {/* Invoice History Modal - accountability view for a PO's invoicing over time */}
+      <Modal
+        title="Invoice History"
+        open={invoiceHistoryVisible}
+        onCancel={() => { setInvoiceHistoryVisible(false); setInvoiceHistoryData(null); }}
+        footer={<Button onClick={() => setInvoiceHistoryVisible(false)}>Close</Button>}
+        width={700}
+      >
+        {invoiceHistoryLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        ) : invoiceHistoryData ? (
+          <>
+            <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>
+              <Descriptions.Item label="PO Number">{invoiceHistoryData.poNumber}</Descriptions.Item>
+              <Descriptions.Item label="PO Total">XAF {invoiceHistoryData.poTotalAmount?.toLocaleString()}</Descriptions.Item>
+              <Descriptions.Item label="Invoiced So Far">XAF {invoiceHistoryData.invoicedAmount?.toLocaleString()}</Descriptions.Item>
+              <Descriptions.Item label="Remaining">XAF {invoiceHistoryData.remainingAmount?.toLocaleString()}</Descriptions.Item>
+            </Descriptions>
+            <Table
+              size="small"
+              dataSource={invoiceHistoryData.invoices}
+              rowKey="_id"
+              pagination={false}
+              locale={{ emptyText: 'No invoices raised against this PO yet' }}
+              columns={[
+                { title: 'Invoice #', dataIndex: 'invoiceNumber', key: 'invoiceNumber' },
+                {
+                  title: 'Amount', dataIndex: 'totalAmount', key: 'totalAmount',
+                  render: (v) => `XAF ${(v || 0).toLocaleString()}`
+                },
+                {
+                  title: 'Type', dataIndex: 'isPartialInvoice', key: 'isPartialInvoice',
+                  render: (isPartial) => <Tag color={isPartial ? 'gold' : 'blue'}>{isPartial ? 'Partial' : 'Full'}</Tag>
+                },
+                {
+                  title: 'Status', dataIndex: 'approvalStatus', key: 'approvalStatus',
+                  render: (s) => <Tag>{s}</Tag>
+                },
+                {
+                  title: 'Created By', key: 'createdBy',
+                  render: (_, r) => r.createdByDetails?.name || '—'
+                },
+                {
+                  title: 'Date', dataIndex: 'createdAt', key: 'createdAt',
+                  render: (d) => d ? moment(d).format('DD/MM/YYYY') : '—'
+                }
+              ]}
+            />
+          </>
+        ) : (
+          <Text type="secondary">No history available.</Text>
+        )}
+      </Modal>
     </div>
   );
 };

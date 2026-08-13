@@ -189,7 +189,7 @@ export const cashRequestAPI = {
     }
     try {
       const response = await api.post('/cash-requests', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 'Content-Type': undefined },
         timeout: 60000,
       });
       console.log('API: Cash request created successfully:', response.data);
@@ -383,7 +383,7 @@ export const cashRequestAPI = {
     }
     try {
       const response = await api.post(`/cash-requests/${requestId}/justification`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 'Content-Type': undefined },
         timeout: 60000,
       });
       console.log('API: Justification submitted successfully:', response.data);
@@ -422,7 +422,7 @@ export const cashRequestAPI = {
     }
     try {
       const response = await api.post('/cash-requests/reimbursement', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 'Content-Type': undefined },
         timeout: 60000,
       });
       console.log('API: Reimbursement request created successfully:', response.data);

@@ -10,7 +10,7 @@ const engineeringIncidentAPI = {
   // ── CRUD ──────────────────────────────────────────────────────────────────
   create: (formData) =>
     api.post(BASE, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': undefined }
     }),
 
   getAll: (params = {}) =>

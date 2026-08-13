@@ -732,7 +732,8 @@ const Dashboard = () => {
             { label: 'Request Items', path: '/employee/item-requests', icon: <PlusOutlined /> }
           ],
           supply_chain: [
-            { label: 'SC Dashboard', path: '/supply-chain/requisitions', icon: <CrownOutlined />, primary: true, badge: true },
+            { label: 'Supply Chain Dashboard', path: '/supply-chain/dashboard', icon: <DashboardOutlined />, primary: true },
+            { label: 'SC Requisitions', path: '/supply-chain/requisitions', icon: <CrownOutlined />, badge: true },
             { label: 'PO Assignment', path: '/supply-chain/purchase-orders', icon: <FileTextOutlined />, badge: true },
             { label: 'Head Approval', path: '/supply-chain/head-approval', icon: <CheckCircleOutlined />, badge: true },
             { label: 'Team Requisitions', path: '/supervisor/purchase-requisitions', icon: <TeamOutlined />, badge: true },
@@ -741,6 +742,8 @@ const Dashboard = () => {
             { label: 'Item Management', path: '/supply-chain/item-management', icon: <DatabaseOutlined /> },
             { label: 'Contract Management', path: '/supply-chain/contracts', icon: <FileTextOutlined /> },
             { label: 'PO Approvals', path: '/supervisor/po-approvals', icon: <ShoppingCartOutlined />, badge: true },
+            { label: 'Buyer Dashboard', path: '/buyer/dashboard', icon: <UserOutlined /> },
+            { label: 'Buyer Requisitions', path: '/buyer/requisitions', icon: <ShoppingCartOutlined /> },
             { label: 'Clean Data / Migration', path: '/supply-chain/data-migration-validator', icon: <FilterOutlined /> }
           ],
           buyer: [
@@ -1321,8 +1324,8 @@ const Dashboard = () => {
         }
       }] : []),
 
-      // ── 16. INVENTORY MANAGEMENT (supply_chain / admin / ceo) ─────────────
-      ...(user?.role === 'supply_chain' || user?.role === 'admin' || user?.role === 'ceo' ? [{
+      // ── 16. INVENTORY MANAGEMENT (supply_chain / buyer / admin / ceo) ─────
+      ...(user?.role === 'supply_chain' || user?.role === 'buyer' || user?.role === 'admin' || user?.role === 'ceo' ? [{
         key: 'inventory-management',
         title: 'Inventory Management',
         description: 'Real-time stock tracking, inbound/outbound transactions, and warehouse management',
@@ -1330,7 +1333,7 @@ const Dashboard = () => {
         color: '#e6fffb',
         borderColor: '#13c2c2',
         stats: stats.inventory,
-        managementRoles: ['supply_chain', 'admin', 'ceo'],
+        managementRoles: ['supply_chain', 'buyer', 'admin', 'ceo'],
         actions: {
           supply_chain: [
             { label: 'Inventory Dashboard', path: '/supply-chain/inventory', icon: <DashboardOutlined />, primary: true },
@@ -1339,7 +1342,14 @@ const Dashboard = () => {
             { label: 'Record Outbound', path: '/supply-chain/inventory/outbound', icon: <ShoppingOutlined /> },
             { label: 'Reorder Alerts', path: '/supply-chain/inventory?tab=alerts', icon: <WarningOutlined />, badge: true },
             { label: 'Stock Reports', path: '/supply-chain/inventory?tab=reports', icon: <BarChartOutlined /> },
-            { label: 'Valuation Report', path: '/supply-chain/inventory/valuation', icon: <DollarOutlined /> }
+            { label: 'Valuation Report', path: '/supply-chain/inventory/reports', icon: <DollarOutlined /> }
+          ],
+          buyer: [
+            { label: 'Inventory Dashboard', path: '/buyer/inventory', icon: <DashboardOutlined />, primary: true },
+            { label: 'Available Stock', path: '/buyer/inventory?tab=overview', icon: <DatabaseOutlined /> },
+            { label: 'Record Inbound', path: '/buyer/inventory/inbound', icon: <InboxOutlined /> },
+            { label: 'Record Outbound', path: '/buyer/inventory/outbound', icon: <ShoppingOutlined /> },
+            { label: 'Stock Reports', path: '/buyer/inventory/reports', icon: <BarChartOutlined /> }
           ],
           admin: [
             { label: 'Admin Dashboard', path: '/supply-chain/inventory', icon: <SettingOutlined />, primary: true },
@@ -1350,7 +1360,7 @@ const Dashboard = () => {
           ceo: [
             { label: 'Inventory Overview',  path: '/supply-chain/inventory',               icon: <EyeOutlined />,     primary: true },
             { label: 'Stock Analytics',     path: '/supply-chain/inventory/reports',   icon: <BarChartOutlined /> },
-            { label: 'Valuation Report',    path: '/supply-chain/inventory/valuation',     icon: <DollarOutlined /> },
+            { label: 'Valuation Report',    path: '/supply-chain/inventory/reports',     icon: <DollarOutlined /> },
             { label: 'Reorder Alerts',      path: '/supply-chain/inventory?tab=alerts',    icon: <WarningOutlined />, badge: true },
           ]
         }
@@ -1370,11 +1380,11 @@ const Dashboard = () => {
           supply_chain: [
             { label: 'Asset Registry', path: '/supply-chain/fixed-assets', icon: <BarcodeOutlined />, primary: true },
             { label: 'Register New Asset', path: '/supply-chain/fixed-assets/register', icon: <PlusOutlined /> },
-            { label: 'Asset Dashboard', path: '/supply-chain/fixed-assets/dashboard', icon: <DashboardOutlined /> },
+            { label: 'Asset Dashboard', path: '/supply-chain/fixed-assets', icon: <DashboardOutlined /> },
             { label: 'Assign Assets', path: '/supply-chain/fixed-assets?status=active', icon: <SwapOutlined /> },
             { label: 'Maintenance Schedule', path: '/supply-chain/fixed-assets?filter=maintenance', icon: <ToolOutlined /> },
-            { label: 'Depreciation Reports', path: '/supply-chain/fixed-assets/reports/depreciation', icon: <BarChartOutlined /> },
-            { label: 'Available Tags', path: '/supply-chain/fixed-assets/available-tags', icon: <BarcodeOutlined /> }
+            { label: 'Depreciation Reports', path: '/supply-chain/fixed-assets/analytics', icon: <BarChartOutlined /> },
+            { label: 'Available Tags', path: '/supply-chain/fixed-assets', icon: <BarcodeOutlined /> }
           ],
           admin: [
             { label: 'Admin Dashboard', path: '/supply-chain/fixed-assets', icon: <SettingOutlined />, primary: true },
@@ -1385,7 +1395,7 @@ const Dashboard = () => {
           ceo: [
             { label: 'Asset Registry',        path: '/supply-chain/fixed-assets',                     icon: <EyeOutlined />,     primary: true },
             { label: 'Asset Analytics',       path: '/supply-chain/fixed-assets/analytics',           icon: <BarChartOutlined /> },
-            { label: 'Depreciation Reports',  path: '/supply-chain/fixed-assets/reports/depreciation',icon: <FileTextOutlined /> },
+            { label: 'Depreciation Reports',  path: '/supply-chain/fixed-assets/analytics',icon: <FileTextOutlined /> },
           ]
         }
       }] : []),
@@ -1404,21 +1414,21 @@ const Dashboard = () => {
           supply_chain: [
             { label: 'Performance Dashboard', path: '/supply-chain/supplier-performance', icon: <StarOutlined />, primary: true },
             { label: 'Supplier Rankings', path: '/supply-chain/supplier-performance?tab=rankings', icon: <TrophyOutlined /> },
-            { label: 'New Evaluation', path: '/supply-chain/supplier-performance/evaluate', icon: <PlusOutlined /> },
+            { label: 'New Evaluation', path: '/supply-chain/supplier-performance', icon: <PlusOutlined /> },
             { label: 'Evaluations', path: '/supply-chain/supplier-performance?tab=evaluations', icon: <FileTextOutlined /> },
-            { label: 'Performance Analytics', path: '/supply-chain/supplier-performance/analytics', icon: <BarChartOutlined /> },
-            { label: 'Incident Management', path: '/supply-chain/supplier-performance/incidents', icon: <WarningOutlined /> }
+            { label: 'Performance Analytics', path: '/supply-chain/supplier-performance', icon: <BarChartOutlined /> },
+            { label: 'Incident Management', path: '/supply-chain/supplier-performance', icon: <WarningOutlined /> }
           ],
           admin: [
             { label: 'Admin Dashboard', path: '/supply-chain/supplier-performance', icon: <SettingOutlined />, primary: true },
             { label: 'Supplier Rankings', path: '/supply-chain/supplier-performance?tab=rankings', icon: <TrophyOutlined /> },
-            { label: 'Performance Reports', path: '/supply-chain/supplier-performance/reports', icon: <BarChartOutlined /> },
+            { label: 'Performance Reports', path: '/supply-chain/supplier-performance', icon: <BarChartOutlined /> },
             { label: 'System Settings', path: '/admin/supplier-settings', icon: <SettingOutlined /> }
           ],
           ceo: [
             { label: 'Performance Dashboard', path: '/supply-chain/supplier-performance',             icon: <EyeOutlined />,     primary: true },
             { label: 'Rankings',              path: '/supply-chain/supplier-performance?tab=rankings', icon: <TrophyOutlined /> },
-            { label: 'Performance Analytics', path: '/supply-chain/supplier-performance/analytics',   icon: <BarChartOutlined /> },
+            { label: 'Performance Analytics', path: '/supply-chain/supplier-performance',   icon: <BarChartOutlined /> },
           ]
         }
       }] : []),
@@ -1513,18 +1523,18 @@ const Dashboard = () => {
             { label: 'Migration Tool', path: '/supply-chain/data-migration', icon: <UploadOutlined />, primary: true },
             { label: 'Download Templates', path: '/supply-chain/data-migration?step=templates', icon: <DownloadOutlined /> },
             { label: 'Validate Data', path: '/supply-chain/data-migration-validator', icon: <FilterOutlined /> },
-            { label: 'Migration History', path: '/supply-chain/data-migration/history', icon: <HistoryOutlined /> },
-            { label: 'Validation Reports', path: '/supply-chain/data-migration/validation', icon: <CheckCircleOutlined /> }
+            { label: 'Migration History', path: '/supply-chain/data-migration', icon: <HistoryOutlined /> },
+            { label: 'Validation Reports', path: '/supply-chain/data-migration-validator', icon: <CheckCircleOutlined /> }
           ],
           admin: [
             { label: 'Admin Migration', path: '/supply-chain/data-migration', icon: <SettingOutlined />, primary: true },
             { label: 'Validate Data', path: '/supply-chain/data-migration-validator', icon: <FilterOutlined /> },
-            { label: 'Migration History', path: '/supply-chain/data-migration/history', icon: <HistoryOutlined /> },
+            { label: 'Migration History', path: '/supply-chain/data-migration', icon: <HistoryOutlined /> },
             { label: 'System Backup', path: '/admin/backup', icon: <DatabaseOutlined /> }
           ],
           ceo: [
-            { label: 'Migration History',    path: '/supply-chain/data-migration/history',    icon: <HistoryOutlined />,     primary: true },
-            { label: 'Validation Reports',   path: '/supply-chain/data-migration/validation', icon: <CheckCircleOutlined /> },
+            { label: 'Migration History',    path: '/supply-chain/data-migration',    icon: <HistoryOutlined />,     primary: true },
+            { label: 'Validation Reports',   path: '/supply-chain/data-migration-validator', icon: <CheckCircleOutlined /> },
           ]
         }
       }] : []),
@@ -2025,7 +2035,7 @@ const Dashboard = () => {
     'suggestions':            ['hr','admin','ceo'],
     'sick-leave':             ['hr','supervisor','admin','ceo'],
     'communications':         ['admin','hr','ceo'],
-    'inventory-management':   ['supply_chain','admin','ceo'],
+    'inventory-management':   ['supply_chain','buyer','admin','ceo'],
     'fixed-assets':           ['supply_chain','admin','ceo'],
     'supplier-performance':   ['supply_chain','admin','ceo'],
     'data-migration':         ['supply_chain','admin','ceo'],
@@ -2426,6 +2436,14 @@ const Dashboard = () => {
           <Col xs={24} sm={12} md={6}>
             <Button block icon={<BarChartOutlined />} onClick={() => navigate('/analytics')} disabled={userCapabilities.level < 2}>Analytics Dashboard</Button>
           </Col>
+
+          {user?.email?.toLowerCase() === 'carmel.dafny@gratoglobal.com' && (
+            <Col xs={24} sm={12} md={6}>
+              <Button block icon={<FolderOutlined />} onClick={() => navigate('/hr/documents')} type="primary">
+                Employee Documents
+              </Button>
+            </Col>
+          )}
 
           {user?.role === 'ceo' && (
             <>

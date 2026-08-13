@@ -195,7 +195,7 @@ import EmployeeManagement from './pages/hr/EmployeeManagement';
 import EmployeeForm from './pages/hr/EmployeeForm';
 import EmployeeProfile from './pages/hr/EmployeeProfile';
 import ContractManagement from './pages/hr/ContractManagement';
-import DocumentManager from './pages/hr/DocumentManager';
+import DocumentsHub from './pages/hr/DocumentsHub';
 import HRCommunicationsHub from './pages/hr/HRCommunicationsHub';
 import HRReports from './pages/hr/Hrreports';
 
@@ -266,6 +266,12 @@ import DocumentDetail from './pages/employee/DocumentDetail';
 //               (unless the list contains 'admin-restricted'), OR hold
 //               an active CEO delegation that grants an equivalent role.
 // ─────────────────────────────────────────────────────────────────────────────
+// Emails granted a narrow, specific exception to an otherwise role-gated route,
+// independent of their actual role. Keep this list small and document why each
+// entry exists - it's a routing-level convenience only; the real access boundary
+// is enforced server-side.
+const DOCUMENT_ONLY_HR_EMAILS = ['carmel.dafny@gratoglobal.com'];
+
 const EnhancedProtectedRoute = ({ children, allowedRoles, fallbackRole = null }) => {
   const { user } = useSelector((state) => state.auth);
   const { grantedRoles, isGlobalDelegate } = useCEODelegation();
@@ -278,6 +284,15 @@ const EnhancedProtectedRoute = ({ children, allowedRoles, fallbackRole = null })
 
     // Rule 1 — CEO and Admin bypass everything
     if ((isAdmin || isCEO) && !isAdminRestricted) {
+      return <ProtectedRoute>{children}</ProtectedRoute>;
+    }
+
+    // Rule 1b — narrow, named-user exception (see DOCUMENT_ONLY_HR_EMAILS above)
+    if (
+      allowedRoles.includes('hr') &&
+      user?.email &&
+      DOCUMENT_ONLY_HR_EMAILS.includes(user.email.toLowerCase())
+    ) {
       return <ProtectedRoute>{children}</ProtectedRoute>;
     }
 
@@ -863,7 +878,7 @@ const AppRoutes = () => {
 
           {/* Contracts & documents */}
           <Route path="contracts"                          element={<ContractManagement />} />
-          <Route path="documents"                          element={<DocumentManager />} />
+          <Route path="documents"                          element={<DocumentsHub />} />
 
           {/* Incidents */}
           <Route path="incident-reports"                   element={<HRIncidentReports />} />

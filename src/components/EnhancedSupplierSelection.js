@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+
 import {
   Modal,
   Table,
@@ -40,6 +41,8 @@ import {
   ExclamationCircleOutlined
 } from '@ant-design/icons';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+
 const { Option } = Select;
 const { Text, Title } = Typography;
 const { TabPane } = Tabs;
@@ -73,7 +76,7 @@ const EnhancedSupplierSelection = ({ visible, onCancel, onConfirm, loading, cate
       if (category) params.append('category', category);
       if (searchText) params.append('search', searchText);
       
-      const response = await fetch(`/api/buyer/suppliers?${params}`, {
+      const response = await fetch(`${API_BASE_URL}/buyer/suppliers?${params}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
