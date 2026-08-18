@@ -70,6 +70,7 @@ import {
   DownloadOutlined,
   DashboardOutlined,
   ShoppingOutlined,
+  UserSwitchOutlined,
   SearchOutlined,
   FlagOutlined,
   RightOutlined,
@@ -2432,6 +2433,9 @@ const Dashboard = () => {
         <Row gutter={[16, 16]}>
           <Col xs={24} sm={12} md={6}>
             <Button block icon={<UserOutlined />} onClick={() => navigate('/account-settings')}>Account Settings</Button>
+          </Col>
+          <Col xs={24} sm={12} md={6}>
+            <Button block icon={<UserSwitchOutlined />} onClick={() => navigate('/delegation')}>Delegate My Approvals</Button>
           </Col>
           <Col xs={24} sm={12} md={6}>
             <Button block icon={<BarChartOutlined />} onClick={() => navigate('/analytics')} disabled={userCapabilities.level < 2}>Analytics Dashboard</Button>

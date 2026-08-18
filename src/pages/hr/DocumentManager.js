@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Card,
   Upload,
@@ -14,7 +14,9 @@ import {
   List,
   Divider,
   Progress,
-  Spin
+  Spin,
+  Input,
+  Checkbox
 } from 'antd';
 import {
   UploadOutlined,
@@ -30,30 +32,87 @@ import api from '../../services/api';
 
 const { Title, Text } = Typography;
 
+// Fallback used only if the document-sections endpoint fails to load, so the page
+// never ends up with zero sections shown due to a transient network error.
+const FALLBACK_DOCUMENT_TYPES = [
+  { key: 'nationalId', label: 'National ID (Certified Copy)', required: true },
+  { key: 'birthCertificate', label: 'Birth Certificate', required: true },
+  { key: 'bankAttestation', label: 'Bank Attestation', required: true },
+  { key: 'locationPlan', label: 'Detailed Location Plan', required: true },
+  { key: 'medicalCertificate', label: 'Medical Certificate', required: true },
+  { key: 'criminalRecord', label: 'Criminal Record', required: true },
+  { key: 'references', label: 'References (3)', required: true, multiple: true },
+  { key: 'academicDiplomas', label: 'Highest Academic Diplomas', required: true, multiple: true },
+  { key: 'workCertificates', label: 'Work Certificates (Previous Employers)', required: false, multiple: true },
+  { key: 'employmentContract', label: 'Employment Contract', required: true }
+];
+
 const DocumentManager = ({ employeeId, employee, onUpdate }) => {
   const [uploading, setUploading] = useState({});
   const [downloading, setDownloading] = useState({});
   const [viewing, setViewing] = useState(false);
   const [viewingFile, setViewingFile] = useState(null);
 
-  const documentTypes = [
-    { key: 'nationalId', label: 'National ID (Certified Copy)', required: true },
-    { key: 'birthCertificate', label: 'Birth Certificate', required: true },
-    { key: 'bankAttestation', label: 'Bank Attestation', required: true },
-    { key: 'locationPlan', label: 'Detailed Location Plan', required: true },
-    { key: 'medicalCertificate', label: 'Medical Certificate', required: true },
-    { key: 'criminalRecord', label: 'Criminal Record', required: true },
-    { key: 'references', label: 'References (3)', required: true, multiple: true },
-    { key: 'academicDiplomas', label: 'Highest Academic Diplomas', required: true, multiple: true },
-    { key: 'workCertificates', label: 'Work Certificates (Previous Employers)', required: false, multiple: true },
-    { key: 'employmentContract', label: 'Employment Contract', required: true }
-  ];
+  const [documentTypes, setDocumentTypes] = useState(FALLBACK_DOCUMENT_TYPES);
+  const [sectionsLoading, setSectionsLoading] = useState(true);
+  const [addSectionVisible, setAddSectionVisible] = useState(false);
+  const [addSectionLoading, setAddSectionLoading] = useState(false);
+  const [newSectionLabel, setNewSectionLabel] = useState('');
+  const [newSectionDescription, setNewSectionDescription] = useState('');
+  const [newSectionRequired, setNewSectionRequired] = useState(false);
+
+  const fetchDocumentSections = async () => {
+    try {
+      setSectionsLoading(true);
+      const response = await api.get('/hr/document-sections');
+      if (response.data.success && response.data.data?.length) {
+        setDocumentTypes(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load document sections:', error);
+      // Keep the fallback list - the page still works with the 10 built-in sections,
+      // just without any custom ones until this can be retried.
+    } finally {
+      setSectionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDocumentSections();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleAddSection = async () => {
+    if (!newSectionLabel.trim()) {
+      message.error('Please enter a name for the new section');
+      return;
+    }
+    try {
+      setAddSectionLoading(true);
+      const response = await api.post('/hr/document-sections', {
+        label: newSectionLabel.trim(),
+        description: newSectionDescription.trim(),
+        required: newSectionRequired
+      });
+      if (response.data.success) {
+        message.success(`"${newSectionLabel.trim()}" added`);
+        setAddSectionVisible(false);
+        setNewSectionLabel('');
+        setNewSectionDescription('');
+        setNewSectionRequired(false);
+        await fetchDocumentSections();
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Failed to add section');
+    } finally {
+      setAddSectionLoading(false);
+    }
+  };
 
   const getDocumentStatus = (docKey) => {
-    const docs = employee?.employmentDetails?.documents;
-    if (!docs) return null;
-
-    const docArray = docs[docKey];
+    const builtIn = employee?.employmentDetails?.documents?.[docKey];
+    const custom = employee?.employmentDetails?.customDocuments?.[docKey];
+    const docArray = Array.isArray(builtIn) ? builtIn : custom;
     return Array.isArray(docArray) && docArray.length > 0 ? docArray : null;
   };
 
@@ -194,6 +253,15 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
 
   return (
     <div>
+      <Row justify="end" style={{ marginBottom: '16px' }}>
+        <Button
+          icon={<PlusOutlined />}
+          onClick={() => setAddSectionVisible(true)}
+        >
+          Add Custom Section
+        </Button>
+      </Row>
+
       {/* Document Completion Progress */}
       <Card size="small" style={{ marginBottom: '24px' }}>
         <Row gutter={16} align="middle">
@@ -362,6 +430,51 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
             />
           )
         )}
+      </Modal>
+
+      {/* Add Custom Section Modal */}
+      <Modal
+        title="Add Custom Document Section"
+        open={addSectionVisible}
+        onCancel={() => {
+          setAddSectionVisible(false);
+          setNewSectionLabel('');
+          setNewSectionDescription('');
+          setNewSectionRequired(false);
+        }}
+        onOk={handleAddSection}
+        confirmLoading={addSectionLoading}
+        okText="Add Section"
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+          This adds a new document section that will be available for every employee,
+          not just this one.
+        </Text>
+        <div style={{ marginBottom: 12 }}>
+          <Text strong>Section Name</Text>
+          <Input
+            placeholder="e.g. Passport Copy"
+            value={newSectionLabel}
+            onChange={(e) => setNewSectionLabel(e.target.value)}
+            style={{ marginTop: 4 }}
+          />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <Text strong>Description (optional)</Text>
+          <Input.TextArea
+            placeholder="What should be uploaded here?"
+            value={newSectionDescription}
+            onChange={(e) => setNewSectionDescription(e.target.value)}
+            rows={2}
+            style={{ marginTop: 4 }}
+          />
+        </div>
+        <Checkbox
+          checked={newSectionRequired}
+          onChange={(e) => setNewSectionRequired(e.target.checked)}
+        >
+          Mark as required
+        </Checkbox>
       </Modal>
     </div>
   );

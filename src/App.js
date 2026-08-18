@@ -9,6 +9,7 @@ import PettyCashLayout from './components/PettyCashLayout';
 import Login from './pages/auth/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import Dashboard from './components/Dashboard';
+import MyDelegation from './pages/MyDelegation';
 import './App.css';
 
 // ── CEO Delegation ───────────────────────────────────────────────────────────
@@ -446,6 +447,10 @@ const AppRoutes = () => {
         {/* ── MAIN DASHBOARD ──────────────────────────────────────────────── */}
         <Route path="/dashboard" element={<ProtectedRoute><PettyCashLayout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
+        </Route>
+
+        <Route path="/delegation" element={<ProtectedRoute><PettyCashLayout /></ProtectedRoute>}>
+          <Route index element={<MyDelegation />} />
         </Route>
 
         {/* ── SUPPLIER PORTAL ─────────────────────────────────────────────── */}
