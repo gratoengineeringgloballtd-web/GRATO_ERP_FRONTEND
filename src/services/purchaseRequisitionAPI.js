@@ -670,6 +670,19 @@ export const purchaseRequisitionAPI = {
     }
   },
 
+  getBuyerAssignmentTracking: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/purchase-requisitions/procurement/buyer-tracking', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Get buyer assignment tracking error:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to fetch buyer assignment tracking'
+      };
+    }
+  },
+
   // Download an Excel export of requisition data.
   // reportType: 'requisition_summary' | 'requisition_spend' | 'requisition_pending_approvals'
   exportRequisitionReport: async (reportType = 'requisition_summary', filters = {}) => {

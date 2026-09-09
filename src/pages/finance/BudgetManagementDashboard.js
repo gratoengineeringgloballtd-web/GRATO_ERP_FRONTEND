@@ -1280,16 +1280,17 @@ const BudgetManagementDashboard = () => {
                     }
                 >
                     <Select.OptGroup label="Departments">
+                      <Option value="Technical">Technical</Option>
                       <Option value="Technical Operations">Technical Operations</Option>
                       <Option value="Technical Roll Out">Technical Roll Out</Option>
                       <Option value="Technical QHSE">Technical QHSE</Option>
                       <Option value="IT">IT Department</Option>
                       <Option value="Finance">Finance</Option>
-                      <Option value="HR">Human Resources</Option>
+                      <Option value="HR & Admin">Human Resources & Admin</Option>
                       <Option value="Marketing">Marketing</Option>
                       <Option value="Refurbishment">Refurbishment</Option>
                       <Option value="CEO Office">CEO Office</Option>
-                      <Option value="Supply Chain">Supply Chain</Option>
+                      <Option value="Business Development & Supply Chain">Business Development & Supply Chain</Option>
                       <Option value="Business">Business</Option>
                       <Option value="Facilities">Facilities</Option>
                       

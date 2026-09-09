@@ -565,6 +565,7 @@ const Dashboard = () => {
           technical: [{ label: 'Team Requests', path: '/supervisor/cash-approvals', icon: <TeamOutlined />, badge: true }],
           hr: [{ label: 'Team Requests', path: '/supervisor/cash-approvals', icon: <TeamOutlined />, badge: true }],
           supply_chain: [{ label: 'Team Requests', path: '/supervisor/cash-approvals', icon: <TeamOutlined />, badge: true }],
+          it: [{ label: 'Team Requests', path: '/supervisor/cash-approvals', icon: <TeamOutlined />, badge: true }],
           finance: [
             { label: 'Finance Dashboard', path: '/finance/cash-approvals', icon: <CrownOutlined />, primary: true, badge: true },
             { label: 'Team Cash Requests', path: '/supervisor/cash-approvals', icon: <TeamOutlined />, badge: true },

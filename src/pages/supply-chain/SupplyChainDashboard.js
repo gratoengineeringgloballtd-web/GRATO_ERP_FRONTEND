@@ -103,6 +103,16 @@ const SupplyChainDashboard = () => {
   const [planningData, setPlanningData] = useState(null);
   const [invoiceStats, setInvoiceStats] = useState(null);
   const [supplierCount, setSupplierCount] = useState(null);
+  const [buyerTracking, setBuyerTracking] = useState(null);
+  const [buyerTrackingLoading, setBuyerTrackingLoading] = useState(false);
+
+  const fetchBuyerTracking = async () => {
+    if (buyerTracking) return; // already loaded
+    setBuyerTrackingLoading(true);
+    const res = await purchaseRequisitionAPI.getBuyerAssignmentTracking();
+    if (res?.success) setBuyerTracking(res);
+    setBuyerTrackingLoading(false);
+  };
 
   useEffect(() => {
     fetchDashboardData();
@@ -341,6 +351,7 @@ const SupplyChainDashboard = () => {
       {/* Main Content Tabs */}
       <Tabs
         defaultActiveKey="recent"
+        onChange={(key) => { if (key === 'buyer-tracking') fetchBuyerTracking(); }}
         items={[
           {
             key: 'recent',
@@ -420,6 +431,66 @@ const SupplyChainDashboard = () => {
                       }
                     ]}
                   />
+                )}
+              </Card>
+            )
+          },
+          {
+            key: 'buyer-tracking',
+            label: <><FileDoneOutlined /> Buyer Tracking</>,
+            children: (
+              <Card>
+                {buyerTrackingLoading ? (
+                  <div style={{ textAlign: 'center', padding: 32 }}><Spin /></div>
+                ) : !buyerTracking || buyerTracking.data.length === 0 ? (
+                  <Text type="secondary">No requisitions currently assigned to a buyer.</Text>
+                ) : (
+                  <>
+                    <Space wrap style={{ marginBottom: 16 }}>
+                      {Object.entries(buyerTracking.stageCounts || {}).map(([stage, count]) => (
+                        <Tag key={stage} color={count > 0 ? 'blue' : 'default'}>
+                          {stage.replace(/_/g, ' ')}: {count}
+                        </Tag>
+                      ))}
+                    </Space>
+                    <Table
+                      dataSource={buyerTracking.data}
+                      rowKey="requisitionId"
+                      size="small"
+                      pagination={{ pageSize: 10 }}
+                      columns={[
+                        { title: 'Requisition', dataIndex: 'requisitionNumber', key: 'requisitionNumber' },
+                        { title: 'Title', dataIndex: 'title', key: 'title', ellipsis: true },
+                        {
+                          title: 'Buyer', key: 'buyer',
+                          render: (_, r) => r.assignedBuyer?.name || 'Unassigned'
+                        },
+                        {
+                          title: 'Current Stage', key: 'stage',
+                          render: (_, r) => {
+                            const colorMap = {
+                              assigned: 'default',
+                              sourcing_initiated: 'processing',
+                              quotes_evaluated: 'gold',
+                              vendor_selected: 'purple',
+                              purchase_order_created: 'cyan',
+                              procurement_complete: 'success'
+                            };
+                            return <Tag color={colorMap[r.stage] || 'default'}>{r.stageLabel}</Tag>;
+                          }
+                        },
+                        {
+                          title: 'Quotes', key: 'quotes',
+                          render: (_, r) => r.rfq ? `${r.rfq.quotesReceived} / ${r.rfq.suppliersInvited}` : '—'
+                        },
+                        {
+                          title: 'Days Since Assignment', dataIndex: 'daysSinceAssignment', key: 'daysSinceAssignment',
+                          render: (d) => d !== null ? `${d}d` : '—',
+                          sorter: (a, b) => (a.daysSinceAssignment || 0) - (b.daysSinceAssignment || 0)
+                        }
+                      ]}
+                    />
+                  </>
                 )}
               </Card>
             )

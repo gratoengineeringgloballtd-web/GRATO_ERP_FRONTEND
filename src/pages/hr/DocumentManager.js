@@ -16,17 +16,23 @@ import {
   Progress,
   Spin,
   Input,
-  Checkbox
+  Checkbox,
+  Breadcrumb,
+  Radio,
+  Empty
 } from 'antd';
 import {
   UploadOutlined,
   FileOutlined,
+  FolderOutlined,
+  FolderAddOutlined,
   CheckCircleOutlined,
   DownloadOutlined,
   EyeOutlined,
   PlusOutlined,
   WarningOutlined,
-  LoadingOutlined
+  LoadingOutlined,
+  HomeOutlined
 } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -60,11 +66,17 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
   const [newSectionLabel, setNewSectionLabel] = useState('');
   const [newSectionDescription, setNewSectionDescription] = useState('');
   const [newSectionRequired, setNewSectionRequired] = useState(false);
+  const [newSectionType, setNewSectionType] = useState('section'); // 'section' | 'folder'
+  const [newSectionScope, setNewSectionScope] = useState('personal'); // 'personal' | 'global'
+
+  // Folder navigation - null means "at the root"
+  const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [breadcrumbs, setBreadcrumbs] = useState([{ id: null, label: 'Documents' }]);
 
   const fetchDocumentSections = async () => {
     try {
       setSectionsLoading(true);
-      const response = await api.get('/hr/document-sections');
+      const response = await api.get('/hr/document-sections', { params: { employeeId } });
       if (response.data.success && response.data.data?.length) {
         setDocumentTypes(response.data.data);
       }
@@ -80,33 +92,54 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
   useEffect(() => {
     fetchDocumentSections();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [employeeId]);
 
   const handleAddSection = async () => {
     if (!newSectionLabel.trim()) {
-      message.error('Please enter a name for the new section');
+      message.error(`Please enter a name for the new ${newSectionType}`);
       return;
     }
     try {
       setAddSectionLoading(true);
+      // employeeId is only sent when 'personal' scope is chosen - that's what makes the
+      // section visible only to this one employee. Omitting it (the 'global' choice)
+      // creates a section visible to every employee's document manager instead. The
+      // defaults (Civil Status File, Contracts, etc.) are seeded separately as global
+      // sections, not created through this flow.
       const response = await api.post('/hr/document-sections', {
         label: newSectionLabel.trim(),
         description: newSectionDescription.trim(),
-        required: newSectionRequired
+        required: newSectionRequired,
+        isFolder: newSectionType === 'folder',
+        parentFolderId: currentFolderId,
+        ...(newSectionScope === 'personal' ? { employeeId } : {})
       });
       if (response.data.success) {
-        message.success(`"${newSectionLabel.trim()}" added`);
+        message.success(`"${newSectionLabel.trim()}" added${newSectionScope === 'global' ? ' for all employees' : ''}`);
         setAddSectionVisible(false);
         setNewSectionLabel('');
         setNewSectionDescription('');
         setNewSectionRequired(false);
+        setNewSectionType('section');
+        setNewSectionScope('personal');
         await fetchDocumentSections();
       }
     } catch (error) {
-      message.error(error.response?.data?.message || 'Failed to add section');
+      message.error(error.response?.data?.message || `Failed to add ${newSectionType}`);
     } finally {
       setAddSectionLoading(false);
     }
+  };
+
+  const handleNavigateFolder = (folder) => {
+    setCurrentFolderId(folder._id);
+    setBreadcrumbs(prev => [...prev, { id: folder._id, label: folder.label }]);
+  };
+
+  const handleBreadcrumbClick = (index) => {
+    const crumb = breadcrumbs[index];
+    setCurrentFolderId(crumb.id);
+    setBreadcrumbs(breadcrumbs.slice(0, index + 1));
   };
 
   const getDocumentStatus = (docKey) => {
@@ -295,9 +328,51 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
         />
       )}
 
-      {/* Document Upload Sections */}
+      {/* Folder breadcrumb */}
+      <Breadcrumb style={{ marginBottom: 16 }}>
+        {breadcrumbs.map((crumb, index) => (
+          <Breadcrumb.Item key={crumb.id || 'root'}>
+            <a onClick={() => handleBreadcrumbClick(index)} style={{ cursor: 'pointer' }}>
+              {index === 0 && <HomeOutlined style={{ marginRight: 4 }} />}
+              {crumb.label}
+            </a>
+          </Breadcrumb.Item>
+        ))}
+      </Breadcrumb>
+
+      {/* Folders in the current directory */}
+      {(() => {
+        const folders = documentTypes.filter(d => d.isFolder && (d.parentFolder || null) === currentFolderId);
+        if (folders.length === 0) return null;
+        return (
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            {folders.map(folder => (
+              <Col xs={24} md={12} key={folder._id}>
+                <Card
+                  hoverable
+                  size="small"
+                  onClick={() => handleNavigateFolder(folder)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <Space>
+                    <FolderOutlined style={{ fontSize: 20, color: '#faad14' }} />
+                    <div>
+                      <Text strong>{folder.label}</Text>
+                      {folder.description && (
+                        <div><Text type="secondary" style={{ fontSize: 12 }}>{folder.description}</Text></div>
+                      )}
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        );
+      })()}
+
+      {/* Document Upload Sections - only leaf sections in the current directory */}
       <Row gutter={[16, 16]}>
-        {documentTypes.map((docType) => {
+        {documentTypes.filter(d => !d.isFolder && (d.parentFolder || null) === currentFolderId).map((docType) => {
           const status = getDocumentStatus(docType.key) || [];
           const isUploaded = status.length > 0;
           const isUploading = uploading[docType.key];
@@ -377,6 +452,10 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
         })}
       </Row>
 
+      {documentTypes.filter(d => (d.parentFolder || null) === currentFolderId).length === 0 && (
+        <Empty description="This folder is empty" style={{ margin: '32px 0' }} />
+      )}
+
       <Divider />
 
       <Alert
@@ -434,26 +513,61 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
 
       {/* Add Custom Section Modal */}
       <Modal
-        title="Add Custom Document Section"
+        title={newSectionType === 'folder' ? 'Add Folder' : 'Add Custom Document Section'}
         open={addSectionVisible}
         onCancel={() => {
           setAddSectionVisible(false);
           setNewSectionLabel('');
           setNewSectionDescription('');
           setNewSectionRequired(false);
+          setNewSectionType('section');
+          setNewSectionScope('personal');
         }}
         onOk={handleAddSection}
         confirmLoading={addSectionLoading}
-        okText="Add Section"
+        okText={newSectionType === 'folder' ? 'Add Folder' : 'Add Section'}
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          This adds a new document section that will be available for every employee,
-          not just this one.
+          This will be created in <Text strong>{breadcrumbs[breadcrumbs.length - 1].label}</Text>.
         </Text>
+
         <div style={{ marginBottom: 12 }}>
-          <Text strong>Section Name</Text>
+          <Text strong>Type</Text>
+          <div style={{ marginTop: 4 }}>
+            <Radio.Group value={newSectionType} onChange={(e) => setNewSectionType(e.target.value)}>
+              <Radio.Button value="section">
+                <FileOutlined /> Document Section
+              </Radio.Button>
+              <Radio.Button value="folder">
+                <FolderAddOutlined /> Folder
+              </Radio.Button>
+            </Radio.Group>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <Text strong>Who is this for?</Text>
+          <div style={{ marginTop: 4 }}>
+            <Radio.Group value={newSectionScope} onChange={(e) => setNewSectionScope(e.target.value)}>
+              <Radio.Button value="personal">
+                Just {employee?.fullName || 'this employee'}
+              </Radio.Button>
+              <Radio.Button value="global">
+                All Employees
+              </Radio.Button>
+            </Radio.Group>
+          </div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+            {newSectionScope === 'global'
+              ? `This will appear in every employee's document manager, not just ${employee?.fullName || 'this one'}.`
+              : `This will only ever appear in ${employee?.fullName || 'this employee'}'s document manager - nobody else will see it.`}
+          </Text>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <Text strong>{newSectionType === 'folder' ? 'Folder Name' : 'Section Name'}</Text>
           <Input
-            placeholder="e.g. Passport Copy"
+            placeholder={newSectionType === 'folder' ? 'e.g. Immigration Documents' : 'e.g. Passport Copy'}
             value={newSectionLabel}
             onChange={(e) => setNewSectionLabel(e.target.value)}
             style={{ marginTop: 4 }}
@@ -462,19 +576,21 @@ const DocumentManager = ({ employeeId, employee, onUpdate }) => {
         <div style={{ marginBottom: 12 }}>
           <Text strong>Description (optional)</Text>
           <Input.TextArea
-            placeholder="What should be uploaded here?"
+            placeholder={newSectionType === 'folder' ? 'What belongs in this folder?' : 'What should be uploaded here?'}
             value={newSectionDescription}
             onChange={(e) => setNewSectionDescription(e.target.value)}
             rows={2}
             style={{ marginTop: 4 }}
           />
         </div>
-        <Checkbox
-          checked={newSectionRequired}
-          onChange={(e) => setNewSectionRequired(e.target.checked)}
-        >
-          Mark as required
-        </Checkbox>
+        {newSectionType === 'section' && (
+          <Checkbox
+            checked={newSectionRequired}
+            onChange={(e) => setNewSectionRequired(e.target.checked)}
+          >
+            Mark as required
+          </Checkbox>
+        )}
       </Modal>
     </div>
   );
