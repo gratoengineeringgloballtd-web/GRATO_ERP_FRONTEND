@@ -52,8 +52,7 @@ import {
   FilePdfOutlined,
   WarningOutlined,
   InboxOutlined,
-  CheckOutlined,
-  HistoryOutlined
+  CheckOutlined
     , MinusCircleOutlined
 } from '@ant-design/icons';
 import moment from 'moment';
@@ -65,17 +64,6 @@ const { TextArea } = Input;
 const { Option } = Select;
 const { TabPane } = Tabs;
 const { Dragger } = Upload;
-
-// Resolves a PO's supplier display name across both storage shapes this codebase uses:
-// the embedded supplierDetails snapshot (direct PO creation) or the populated supplierId
-// reference (quote-to-PO conversion). po.supplier doesn't exist on either shape.
-const getSupplierName = (po) => {
-  if (!po) return '—';
-  return po.supplierDetails?.name
-    || po.supplierId?.fullName
-    || po.supplierId?.supplierDetails?.companyName
-    || '—';
-};
 
 const FinanceInvoicePreparation = () => {
   // ==================== STATE MANAGEMENT ====================
@@ -97,9 +85,6 @@ const FinanceInvoicePreparation = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
-  const [invoiceHistoryVisible, setInvoiceHistoryVisible] = useState(false);
-  const [invoiceHistoryData, setInvoiceHistoryData] = useState(null);
-  const [invoiceHistoryLoading, setInvoiceHistoryLoading] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   
@@ -110,6 +95,7 @@ const FinanceInvoicePreparation = () => {
   
   // Upload states
   const [invoiceFile, setInvoiceFile] = useState(null);
+  const [clientPOFile, setClientPOFile] = useState(null); // the client's PO document to invoice from
   const [fileUploading, setFileUploading] = useState(false);
   
   // Calculation states
@@ -173,11 +159,11 @@ const FinanceInvoicePreparation = () => {
       
       // Fetch Purchase Orders for Finance
       const [posRes, invoicesRes, suppliersRes, itemsRes] = await Promise.all([
-        api.get('/invoices/finance/po-list')
+        api.get('/purchase-orders/finance/for-invoicing')
           .catch(() => ({ data: { success: false, data: [] } })),
         api.get('/invoices/finance/prepared')
           .catch(() => ({ data: { success: false, data: [] } })),
-        api.get('/suppliers/admin/all')
+        api.get('/suppliers')
           .catch(() => ({ data: { success: false, data: [] } })),
         api.get('/items')
           .catch(() => ({ data: { success: false, data: [] } }))
@@ -216,20 +202,6 @@ const FinanceInvoicePreparation = () => {
   };
 
   // Invoices are isolated from POs; manual creation uses the New Invoice button.
-
-  const openInvoiceHistory = async (po) => {
-    setInvoiceHistoryVisible(true);
-    setInvoiceHistoryLoading(true);
-    try {
-      const response = await api.get(`/invoices/finance/po/${po._id}/history`);
-      setInvoiceHistoryData(response.data.data);
-    } catch (error) {
-      message.error('Failed to load invoice history for this PO');
-      setInvoiceHistoryData(null);
-    } finally {
-      setInvoiceHistoryLoading(false);
-    }
-  };
 
   const openCreateManualInvoice = () => {
     setSelectedPO(null);
@@ -277,18 +249,33 @@ const FinanceInvoicePreparation = () => {
 
   const handleSubmitInvoice = async (values) => {
     try {
+      // Client-side guard against over-invoicing a tracked PO — the backend
+      // enforces this too, but catching it here avoids a round trip.
+      if (selectedPO) {
+        const alreadyInvoiced = selectedPO.invoicedAmount || 0;
+        const remaining = Math.max(0, (selectedPO.amount || 0) - alreadyInvoiced);
+        const requested = values.totalAmount || 0;
+        if (requested - remaining > 0.5) {
+          message.error(
+            `This invoice's total (${requested.toLocaleString()}) exceeds the remaining balance ` +
+            `on PO ${selectedPO.poNumber} (${remaining.toLocaleString()} left of ${(selectedPO.amount || 0).toLocaleString()}).`
+          );
+          return;
+        }
+      }
+
       setSubmitLoading(true);
 
       // Get current user info
       const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-      
+
       // Get customer name for invoice number generation
       const selectedCustomer = customers.find(c => c._id === values.supplier);
       const customerName = selectedCustomer?.companyName || selectedPO?.customerName || '';
-      
+
       // Generate invoice number
       const invoiceNumber = generateInvoiceNumber(customerName);
-      
+
       // Prepare invoice data object
       const invoiceData = {
         customerId: values.supplier,
@@ -317,14 +304,17 @@ const FinanceInvoicePreparation = () => {
             percentage: selectedPO.paymentTerms[idx]?.percentage
           }));
         }
+      } else if (values.clientPOReference) {
+        // No system PO record selected — this is a client PO uploaded as a
+        // file, so at least keep the reference number the client wrote on it.
+        invoiceData.poReference = values.clientPOReference;
       }
 
-      // If creating from a supplier PO (identified by supplierId, which only supplier PO
-      // records have), send poId so the backend can validate the amount against the PO's
-      // remaining balance and update its cumulative invoicing tracking.
-      if (selectedPO && selectedPO.supplierId) {
-        invoiceData.poId = selectedPO._id;
-        invoiceData.supplierId = typeof selectedPO.supplierId === 'object' ? selectedPO.supplierId._id : selectedPO.supplierId;
+      // If Finance gave the PO's full value, the backend will create a
+      // tracked PO record for it (or use one we already created) so future
+      // partial invoices can be raised against the remaining balance.
+      if (!selectedPO && values.poTotalAmount) {
+        invoiceData.poTotalAmount = values.poTotalAmount;
       }
 
       // Add manual payment terms if defined
@@ -336,13 +326,34 @@ const FinanceInvoicePreparation = () => {
         }));
       }
 
-      const response = await api.post('/invoices/finance/prepare', invoiceData);
+      // Build multipart form data so the client's PO file (and/or the
+      // invoice document) can be attached alongside the regular fields.
+      const formData = new FormData();
+      Object.entries(invoiceData).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        if (typeof value === 'object') {
+          formData.append(key, JSON.stringify(value));
+        } else {
+          formData.append(key, value);
+        }
+      });
+      if (clientPOFile) {
+        formData.append('poFile', clientPOFile);
+      }
+      if (invoiceFile) {
+        formData.append('invoiceFile', invoiceFile);
+      }
+
+      const response = await api.post('/invoices/finance/prepare', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
 
       if (response.data.success) {
         message.success('Invoice prepared successfully');
         setCreateModalVisible(false);
         setUploadModalVisible(false);
         setInvoiceFile(null);
+        setClientPOFile(null);
         form.resetFields();
         setSelectedPO(null);
         await fetchAllData();
@@ -359,6 +370,26 @@ const FinanceInvoicePreparation = () => {
   const handleUploadFile = async (file) => {
     setInvoiceFile(file);
     return false; // Prevent auto upload
+  };
+
+  const handleUploadClientPO = (file) => {
+    setClientPOFile(file);
+    return false; // Prevent antd's auto upload — we send it ourselves on submit
+  };
+
+  // Opens a stored invoice/PO file (Cloudinary) in a new tab
+  const handleViewInvoiceFile = async (type, publicId) => {
+    if (!publicId) return;
+    try {
+      const res = await api.get(`/invoices/files/${type}/${publicId}`);
+      if (res.data?.success && res.data.data?.url) {
+        window.open(res.data.data.url, '_blank', 'noopener,noreferrer');
+      } else {
+        message.error('File not available');
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Failed to open file');
+    }
   };
 
   const handleDeleteInvoice = async (invoiceId) => {
@@ -381,42 +412,21 @@ const FinanceInvoicePreparation = () => {
     });
   };
 
-  const handlePrepareInvoiceFromPO = (po) => {
-    const invoiced = po.invoicedAmount || 0;
-    const remaining = po.remainingAmount ?? Math.max(0, (po.totalAmount || 0) - invoiced);
-
-    form.resetFields();
-    form.setFieldsValue({
-      supplier: po.supplierId?._id || po.supplierId,
-      poNumber: po.poNumber,
-      poId: po._id,
-      // Default to the remaining balance, not the full PO amount - this is what makes
-      // partial invoicing the natural default rather than something you have to remember
-      // to adjust for every already-partially-invoiced PO.
-      totalAmount: remaining,
-      invoiceDate: moment(),
-      dueDate: moment().add(30, 'days'),
-      description: `Invoice for ${po.poNumber}${invoiced > 0 ? ' (partial - remaining balance)' : ''}`,
-      items: [{ description: '', quantity: 1, unitPrice: remaining, taxRate: 19.25 }],
-      manualPaymentTerms: []
-    });
-    setSelectedPO(po);
-    setSelectedPaymentTerms([]);
-    setCreateModalVisible(true);
-
-    if (invoiced > 0) {
-      message.info(`This PO has XAF ${invoiced.toLocaleString()} already invoiced. Amount defaulted to the remaining XAF ${remaining.toLocaleString()}.`);
-    }
-  };
-
   const handlePrepareInvoiceFromCustomerPO = (customerPO) => {
+    // Default the invoice amount to whatever is still left on the PO — for a
+    // fresh PO that's the full amount, for one already partially invoiced
+    // it's just the balance, so Finance is nudged toward "invoice the rest"
+    // but can still type a smaller number to invoice yet another partial.
+    const alreadyInvoiced = customerPO.invoicedAmount || 0;
+    const remaining = Math.max(0, (customerPO.amount || 0) - alreadyInvoiced);
+
     // Pre-fill form with customer PO data
     form.setFieldsValue({
       supplier: customerPO.customerId,
       customerName: customerPO.customerName,
       customerId: customerPO.customerId,
       poNumber: customerPO.poNumber,
-      totalAmount: customerPO.amount,
+      totalAmount: remaining,
       invoiceDate: moment(),
       dueDate: customerPO.dueDate ? moment(customerPO.dueDate) : moment().add(30, 'days'),
       paymentTerms: typeof customerPO.paymentTerms === 'string' ? customerPO.paymentTerms : '',
@@ -427,6 +437,141 @@ const FinanceInvoicePreparation = () => {
     setSelectedPO(customerPO);
     setSelectedPaymentTerms([]);
     setCreateModalVisible(true);
+  };
+
+  // ==================== PARTIAL INVOICING / PO HISTORY ====================
+  const [poHistoryVisible, setPoHistoryVisible] = useState(false);
+  const [poHistoryLoading, setPoHistoryLoading] = useState(false);
+  const [poHistoryData, setPoHistoryData] = useState([]);
+  const [poHistoryBalance, setPoHistoryBalance] = useState(null);
+  const [poHistoryTarget, setPoHistoryTarget] = useState(null);
+
+  const handleViewPOHistory = async (customerPO) => {
+    setPoHistoryTarget(customerPO);
+    setPoHistoryVisible(true);
+    setPoHistoryLoading(true);
+    try {
+      const res = await api.get(`/invoices/finance/by-po/${customerPO._id}`, {
+        params: { customerId: customerPO.customerId }
+      });
+      if (res.data?.success) {
+        setPoHistoryData(res.data.data || []);
+        setPoHistoryBalance(res.data.poBalance || null);
+      }
+    } catch (error) {
+      message.error('Failed to load invoicing history for this PO');
+    } finally {
+      setPoHistoryLoading(false);
+    }
+  };
+
+  // ==================== PO EDIT / CLOSE / SEARCH / FILTER ====================
+  const [poSearchTerm, setPoSearchTerm] = useState('');
+  const [poStatusFilter, setPoStatusFilter] = useState('all');
+
+  const [editPOModalVisible, setEditPOModalVisible] = useState(false);
+  const [editingPO, setEditingPO] = useState(null);
+  const [editPOSaving, setEditPOSaving] = useState(false);
+  const [editPOForm] = Form.useForm();
+
+  const [closePOModalVisible, setClosePOModalVisible] = useState(false);
+  const [closingPO, setClosingPO] = useState(null);
+  const [closePOSaving, setClosePOSaving] = useState(false);
+  const [closePOForm] = Form.useForm();
+
+  // Filtered view of customerPOs for the table — search matches PO number,
+  // customer name or description; status filter matches invoicing progress.
+  const filteredCustomerPOs = customerPOs.filter(po => {
+    const invoicingStatus = po.invoicingClosed ? 'closed' : (po.invoicingStatus || 'not_invoiced');
+    if (poStatusFilter !== 'all' && invoicingStatus !== poStatusFilter) return false;
+    if (poSearchTerm) {
+      const haystack = `${po.poNumber || ''} ${po.customerName || ''} ${po.description || ''}`.toLowerCase();
+      if (!haystack.includes(poSearchTerm.toLowerCase())) return false;
+    }
+    return true;
+  });
+
+  const handleOpenEditPO = (po) => {
+    setEditingPO(po);
+    editPOForm.setFieldsValue({
+      poNumber: po.poNumber,
+      description: po.description,
+      amount: po.amount,
+      poDate: po.poDate ? moment(po.poDate) : null,
+      dueDate: po.dueDate ? moment(po.dueDate) : null,
+      notes: po.notes
+    });
+    setEditPOModalVisible(true);
+  };
+
+  const handleSaveEditPO = async (values) => {
+    if (!editingPO) return;
+    const alreadyInvoiced = editingPO.invoicedAmount || 0;
+    if (values.amount < alreadyInvoiced) {
+      message.error(`Can't set the PO amount below what's already invoiced (${alreadyInvoiced.toLocaleString()} XAF).`);
+      return;
+    }
+    setEditPOSaving(true);
+    try {
+      const res = await customerApiService.updatePurchaseOrder(editingPO.customerId, editingPO._id, {
+        poNumber: values.poNumber,
+        description: values.description,
+        amount: values.amount,
+        currency: editingPO.currency || 'XAF',
+        poDate: values.poDate ? values.poDate.toISOString() : editingPO.poDate,
+        dueDate: values.dueDate ? values.dueDate.toISOString() : undefined,
+        paymentTerms: editingPO.paymentTerms,
+        notes: values.notes
+      });
+      if (res.success) {
+        message.success('Purchase Order updated');
+        setEditPOModalVisible(false);
+        setEditingPO(null);
+        await fetchCustomersAndPOs();
+      } else {
+        message.error(res.message || 'Failed to update Purchase Order');
+      }
+    } finally {
+      setEditPOSaving(false);
+    }
+  };
+
+  const handleOpenClosePO = (po) => {
+    setClosingPO(po);
+    closePOForm.resetFields();
+    setClosePOModalVisible(true);
+  };
+
+  const handleConfirmClosePO = async (values) => {
+    if (!closingPO) return;
+    setClosePOSaving(true);
+    try {
+      const res = await customerApiService.closePurchaseOrderInvoicing(closingPO.customerId, closingPO._id, values.reason || '');
+      if (res.success) {
+        message.success('Purchase Order closed to further invoicing');
+        setClosePOModalVisible(false);
+        setClosingPO(null);
+        await fetchCustomersAndPOs();
+      } else {
+        message.error(res.message || 'Failed to close Purchase Order');
+      }
+    } finally {
+      setClosePOSaving(false);
+    }
+  };
+
+  const handleReopenPO = async (po) => {
+    try {
+      const res = await customerApiService.reopenPurchaseOrderInvoicing(po.customerId, po._id);
+      if (res.success) {
+        message.success('Purchase Order reopened for invoicing');
+        await fetchCustomersAndPOs();
+      } else {
+        message.error(res.message || 'Failed to reopen Purchase Order');
+      }
+    } catch (error) {
+      message.error('Failed to reopen Purchase Order');
+    }
   };
 
   const handleSubmitForApproval = async (invoiceId) => {
@@ -480,9 +625,9 @@ const FinanceInvoicePreparation = () => {
     },
     {
       title: 'Supplier',
+      dataIndex: ['supplier', 'name'],
       key: 'supplier',
-      width: 180,
-      render: (_, record) => getSupplierName(record)
+      width: 180
     },
     {
       title: 'Amount',
@@ -507,45 +652,13 @@ const FinanceInvoicePreparation = () => {
       width: 100
     },
     {
-      title: 'Invoicing Progress',
-      key: 'invoicingProgress',
-      width: 220,
-      render: (_, record) => {
-        const invoiced = record.invoicedAmount || 0;
-        const remaining = record.remainingAmount ?? Math.max(0, (record.totalAmount || 0) - invoiced);
-        const pct = record.totalAmount ? Math.round((invoiced / record.totalAmount) * 100) : 0;
-        const statusTagMap = {
-          not_invoiced: { color: 'default', text: 'Not Invoiced' },
-          partially_invoiced: { color: 'gold', text: 'Partially Invoiced' },
-          fully_invoiced: { color: 'success', text: 'Fully Invoiced' }
-        };
-        const statusInfo = statusTagMap[record.invoicingStatus] || statusTagMap.not_invoiced;
-        return (
-          <Space direction="vertical" size={2} style={{ width: '100%' }}>
-            <Tag color={statusInfo.color}>{statusInfo.text}</Tag>
-            <Progress percent={pct} size="small" showInfo={false} />
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              XAF {invoiced.toLocaleString()} invoiced • {remaining.toLocaleString()} remaining
-            </Text>
-          </Space>
-        );
-      }
-    },
-    {
-      title: 'Invoices',
-      key: 'invoiceHistory',
-      width: 90,
-      render: (_, record) => (
-        <Tooltip title="View invoice history">
-          <Button
-            size="small"
-            icon={<HistoryOutlined />}
-            onClick={() => openInvoiceHistory(record)}
-          >
-            {(record.invoices || []).length}
-          </Button>
-        </Tooltip>
-      )
+      title: 'Invoiced',
+      dataIndex: 'hasInvoice',
+      key: 'hasInvoice',
+      render: (hasInvoice) => (
+        hasInvoice ? <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '16px' }} /> : <ClockCircleOutlined />
+      ),
+      width: 100
     },
     {
       title: 'PO Date',
@@ -567,15 +680,6 @@ const FinanceInvoicePreparation = () => {
                 setSelectedPO(record);
                 setDetailDrawerVisible(true);
               }}
-            />
-          </Tooltip>
-          <Tooltip title={record.invoicingStatus === 'fully_invoiced' ? 'Fully invoiced' : 'Create invoice for remaining balance'}>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              size="small"
-              disabled={record.invoicingStatus === 'fully_invoiced'}
-              onClick={() => handlePrepareInvoiceFromPO(record)}
             />
           </Tooltip>
         </Space>
@@ -651,23 +755,108 @@ const FinanceInvoicePreparation = () => {
       width: 100
     },
     {
+      title: 'Invoiced',
+      key: 'invoicedAmount',
+      render: (_, record) => {
+        const invoiced = record.invoicedAmount || 0;
+        const remaining = Math.max(0, (record.amount || 0) - invoiced);
+        const invoicingStatusMap = {
+          not_invoiced: { color: 'default', text: 'Not Invoiced' },
+          partially_invoiced: { color: 'orange', text: 'Partially Invoiced' },
+          fully_invoiced: { color: 'green', text: 'Fully Invoiced' }
+        };
+        const info = invoicingStatusMap[record.invoicingStatus] || invoicingStatusMap.not_invoiced;
+        return (
+          <div>
+            <Tag color={info.color} style={{ marginBottom: 4 }}>{info.text}</Tag>
+            {record.invoicingClosed && (
+              <Tag color="red" style={{ marginBottom: 4 }}>Closed to Invoicing</Tag>
+            )}
+            <div style={{ fontSize: '12px' }}>
+              <Text type="secondary">Invoiced: </Text>
+              <Text strong>{invoiced.toLocaleString()}</Text>
+            </div>
+            <div style={{ fontSize: '12px' }}>
+              <Text type="secondary">Remaining: </Text>
+              <Text strong style={{ color: remaining > 0 ? '#1890ff' : '#52c41a' }}>
+                {remaining.toLocaleString()}
+              </Text>
+            </div>
+          </div>
+        );
+      },
+      width: 170
+    },
+    {
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
-        <Space>
-          <Tooltip title="Prepare Invoice">
-            <Button 
-              type="primary"
-              size="small"
-              icon={<FileTextOutlined />}
-              onClick={() => handlePrepareInvoiceFromCustomerPO(record)}
-            >
-              Invoice
-            </Button>
-          </Tooltip>
-        </Space>
-      ),
-      width: 120
+      render: (_, record) => {
+        const invoiced = record.invoicedAmount || 0;
+        const remaining = Math.max(0, (record.amount || 0) - invoiced);
+        const fullyInvoiced = record.invoicingStatus === 'fully_invoiced' || remaining <= 0.5;
+        const isClosed = !!record.invoicingClosed;
+        const disableInvoicing = fullyInvoiced || isClosed;
+        let disabledReason = 'Prepare Invoice';
+        if (isClosed) disabledReason = 'This PO has been closed to further invoicing';
+        else if (fullyInvoiced) disabledReason = 'This PO has been fully invoiced';
+        return (
+          <Space direction="vertical" size="small">
+            <Tooltip title={disabledReason}>
+              <Button
+                type="primary"
+                size="small"
+                icon={<FileTextOutlined />}
+                disabled={disableInvoicing}
+                onClick={() => handlePrepareInvoiceFromCustomerPO(record)}
+              >
+                {invoiced > 0 ? 'Invoice Balance' : 'Invoice'}
+              </Button>
+            </Tooltip>
+            {invoiced > 0 && (
+              <Tooltip title="View invoicing history">
+                <Button
+                  size="small"
+                  onClick={() => handleViewPOHistory(record)}
+                >
+                  History
+                </Button>
+              </Tooltip>
+            )}
+            <Tooltip title="Edit PO details">
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => handleOpenEditPO(record)}
+              >
+                Edit
+              </Button>
+            </Tooltip>
+            {isClosed ? (
+              <Tooltip title="Reopen this PO for further invoicing">
+                <Button
+                  size="small"
+                  onClick={() => handleReopenPO(record)}
+                >
+                  Reopen
+                </Button>
+              </Tooltip>
+            ) : (
+              !fullyInvoiced && (
+                <Tooltip title="Close this PO to further invoicing">
+                  <Button
+                    size="small"
+                    danger
+                    onClick={() => handleOpenClosePO(record)}
+                  >
+                    Close
+                  </Button>
+                </Tooltip>
+              )
+            )}
+          </Space>
+        );
+      },
+      width: 160
     }
   ];
 
@@ -688,9 +877,9 @@ const FinanceInvoicePreparation = () => {
     },
     {
       title: 'Supplier',
+      dataIndex: ['supplier', 'name'],
       key: 'supplier',
-      width: 180,
-      render: (_, record) => getSupplierName(record)
+      width: 180
     },
     {
       title: 'Amount',
@@ -789,6 +978,15 @@ const FinanceInvoicePreparation = () => {
               onClick={() => handleDownloadInvoicePdf(record._id, record.invoiceNumber)}
             />
           </Tooltip>
+          {record.poFile?.publicId && (
+            <Tooltip title="View Client PO">
+              <Button
+                icon={<FilePdfOutlined />}
+                size="small"
+                onClick={() => handleViewInvoiceFile('po', record.poFile.publicId)}
+              />
+            </Tooltip>
+          )}
         </Space>
       ),
       width: 200
@@ -922,14 +1120,45 @@ const FinanceInvoicePreparation = () => {
             {customerPOs.length === 0 ? (
               <Empty description="No customer purchase orders available" />
             ) : (
-              <Table
-                columns={customerPOColumns}
-                dataSource={customerPOs}
-                rowKey={(record) => record._id || `${record.customerId}-${record.poNumber}`}
-                size="middle"
-                pagination={{ pageSize: 10 }}
-                loading={loading}
-              />
+              <>
+                <Row gutter={12} style={{ marginBottom: 16 }}>
+                  <Col xs={24} sm={12} md={10}>
+                    <Input
+                      allowClear
+                      placeholder="Search by PO number, customer or description"
+                      prefix={<SearchOutlined />}
+                      value={poSearchTerm}
+                      onChange={(e) => setPoSearchTerm(e.target.value)}
+                    />
+                  </Col>
+                  <Col xs={24} sm={12} md={8}>
+                    <Select
+                      style={{ width: '100%' }}
+                      value={poStatusFilter}
+                      onChange={setPoStatusFilter}
+                      suffixIcon={<FilterOutlined />}
+                    >
+                      <Option value="all">All statuses</Option>
+                      <Option value="not_invoiced">Not Invoiced</Option>
+                      <Option value="partially_invoiced">Partially Invoiced</Option>
+                      <Option value="fully_invoiced">Fully Invoiced</Option>
+                      <Option value="closed">Closed to Invoicing</Option>
+                    </Select>
+                  </Col>
+                </Row>
+                {filteredCustomerPOs.length === 0 ? (
+                  <Empty description="No purchase orders match your search/filter" />
+                ) : (
+                  <Table
+                    columns={customerPOColumns}
+                    dataSource={filteredCustomerPOs}
+                    rowKey={(record) => record._id || `${record.customerId}-${record.poNumber}`}
+                    size="middle"
+                    pagination={{ pageSize: 10 }}
+                    loading={loading}
+                  />
+                )}
+              </>
             )}
           </Card>
         </TabPane>
@@ -967,6 +1196,7 @@ const FinanceInvoicePreparation = () => {
           setCreateModalVisible(false);
           setUploadModalVisible(false);
           setInvoiceFile(null);
+          setClientPOFile(null);
           form.resetFields();
         }}
         width={800}
@@ -1028,6 +1258,28 @@ const FinanceInvoicePreparation = () => {
               )}
             </Col>
           </Row>
+
+          {selectedPO && (selectedPO.invoicedAmount > 0) && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: '16px' }}
+              message={`PO ${selectedPO.poNumber} balance`}
+              description={
+                <span>
+                  PO total: <Text strong>{(selectedPO.amount || 0).toLocaleString()} {selectedPO.currency || 'XAF'}</Text>
+                  {'  •  '}
+                  Already invoiced: <Text strong>{(selectedPO.invoicedAmount || 0).toLocaleString()}</Text>
+                  {'  •  '}
+                  Remaining: <Text strong style={{ color: '#1890ff' }}>
+                    {Math.max(0, (selectedPO.amount || 0) - (selectedPO.invoicedAmount || 0)).toLocaleString()}
+                  </Text>
+                  <br />
+                  This invoice's total must not exceed the remaining balance shown above.
+                </span>
+              }
+            />
+          )}
 
           <Row gutter={16}>
             <Col span={8}>
@@ -1443,6 +1695,76 @@ const FinanceInvoicePreparation = () => {
             <TextArea rows={3} placeholder="Terms and conditions..." />
           </Form.Item>
 
+          <Divider orientation="left" style={{ marginTop: '24px', marginBottom: '16px' }}>
+            Client Purchase Order
+          </Divider>
+
+          {!selectedPO && (
+            <>
+              <Form.Item
+                name="clientPOReference"
+                label="Client PO Number / Reference"
+                extra="The PO number written on the client's document, if any. Optional if you're only attaching the file below."
+              >
+                <Input placeholder="e.g. PO/2026/00123" />
+              </Form.Item>
+
+              <Form.Item
+                name="poTotalAmount"
+                label="PO Total Value (optional — enables partial invoicing)"
+                extra="Enter the full value of the client's PO if you want to invoice it in parts over time. Leave blank to just invoice the full amount now with no further tracking."
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={0}
+                  placeholder="e.g. 500000"
+                  formatter={(value) => value ? `${value} FCFA`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                  parser={(value) => value.replace(/[^0-9]/g, '')}
+                />
+              </Form.Item>
+            </>
+          )}
+
+          <Form.Item
+            label="Upload Client PO Document"
+            extra="Upload the PO the client sent (PDF, Word, image). This becomes the basis for this invoice."
+          >
+            <Dragger
+              multiple={false}
+              maxCount={1}
+              beforeUpload={handleUploadClientPO}
+              onRemove={() => setClientPOFile(null)}
+              fileList={clientPOFile ? [{ uid: '-po-1', name: clientPOFile.name, status: 'done' }] : []}
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">Click or drag the client's PO file here</p>
+              <p className="ant-upload-hint">PDF, Word or image files up to 10MB</p>
+            </Dragger>
+          </Form.Item>
+
+          <Form.Item
+            label="Upload Invoice Document (optional)"
+            extra="If you already have the finished invoice as a file, attach it here."
+          >
+            <Dragger
+              multiple={false}
+              maxCount={1}
+              beforeUpload={handleUploadFile}
+              onRemove={() => setInvoiceFile(null)}
+              fileList={invoiceFile ? [{ uid: '-inv-1', name: invoiceFile.name, status: 'done' }] : []}
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">Click or drag the invoice file here</p>
+              <p className="ant-upload-hint">PDF, Word or image files up to 10MB</p>
+            </Dragger>
+          </Form.Item>
+
           <Row gutter={16} style={{ marginTop: '24px' }}>
             <Col span={12}>
               {/* Left side empty for layout */}
@@ -1523,7 +1845,7 @@ const FinanceInvoicePreparation = () => {
               <Tag color="blue">{selectedPO.poNumber}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="Supplier">
-              {getSupplierName(selectedPO)}
+              {selectedPO.supplier?.name}
             </Descriptions.Item>
             <Descriptions.Item label="Amount">
               <Text strong style={{ color: '#1890ff' }}>
@@ -1601,6 +1923,34 @@ const FinanceInvoicePreparation = () => {
               <Descriptions.Item label="Notes" span={2}>
                 {selectedInvoice.description || 'N/A'}
               </Descriptions.Item>
+              <Descriptions.Item label="Client PO Document" span={2}>
+                {selectedInvoice.poFile?.publicId ? (
+                  <Button
+                    type="link"
+                    icon={<FilePdfOutlined />}
+                    style={{ padding: 0 }}
+                    onClick={() => handleViewInvoiceFile('po', selectedInvoice.poFile.publicId)}
+                  >
+                    {selectedInvoice.poFile.originalName || 'View file'}
+                  </Button>
+                ) : (
+                  <Text type="secondary">No PO file attached</Text>
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="Invoice Document" span={2}>
+                {selectedInvoice.invoiceFile?.publicId ? (
+                  <Button
+                    type="link"
+                    icon={<FilePdfOutlined />}
+                    style={{ padding: 0 }}
+                    onClick={() => handleViewInvoiceFile('invoice', selectedInvoice.invoiceFile.publicId)}
+                  >
+                    {selectedInvoice.invoiceFile.originalName || 'View file'}
+                  </Button>
+                ) : (
+                  <Text type="secondary">No invoice file attached</Text>
+                )}
+              </Descriptions.Item>
             </Descriptions>
 
             <Divider orientation="left" style={{ marginTop: '16px' }}>Invoice Items</Divider>
@@ -1651,58 +2001,157 @@ const FinanceInvoicePreparation = () => {
         )}
       </Drawer>
 
-      {/* Invoice History Modal - accountability view for a PO's invoicing over time */}
+      {/* PO Invoicing History / Balance Modal */}
       <Modal
-        title="Invoice History"
-        open={invoiceHistoryVisible}
-        onCancel={() => { setInvoiceHistoryVisible(false); setInvoiceHistoryData(null); }}
-        footer={<Button onClick={() => setInvoiceHistoryVisible(false)}>Close</Button>}
+        title={poHistoryTarget ? `Invoicing History — PO ${poHistoryTarget.poNumber}` : 'Invoicing History'}
+        visible={poHistoryVisible}
+        onCancel={() => {
+          setPoHistoryVisible(false);
+          setPoHistoryData([]);
+          setPoHistoryBalance(null);
+          setPoHistoryTarget(null);
+        }}
+        footer={[
+          <Button key="close" onClick={() => setPoHistoryVisible(false)}>Close</Button>
+        ]}
         width={700}
       >
-        {invoiceHistoryLoading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
-        ) : invoiceHistoryData ? (
+        {poHistoryLoading ? (
+          <div style={{ textAlign: 'center', padding: '24px' }}>
+            <Spin />
+          </div>
+        ) : (
           <>
-            <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="PO Number">{invoiceHistoryData.poNumber}</Descriptions.Item>
-              <Descriptions.Item label="PO Total">XAF {invoiceHistoryData.poTotalAmount?.toLocaleString()}</Descriptions.Item>
-              <Descriptions.Item label="Invoiced So Far">XAF {invoiceHistoryData.invoicedAmount?.toLocaleString()}</Descriptions.Item>
-              <Descriptions.Item label="Remaining">XAF {invoiceHistoryData.remainingAmount?.toLocaleString()}</Descriptions.Item>
-            </Descriptions>
+            {poHistoryBalance && (
+              <div style={{ background: '#fafafa', padding: '12px 16px', borderRadius: '4px', marginBottom: '16px' }}>
+                <Row justify="space-between">
+                  <Col><Text type="secondary">PO Total</Text></Col>
+                  <Col><Text strong>{(poHistoryBalance.poTotal || 0).toLocaleString()} XAF</Text></Col>
+                </Row>
+                <Row justify="space-between">
+                  <Col><Text type="secondary">Invoiced So Far</Text></Col>
+                  <Col><Text strong>{(poHistoryBalance.invoicedSoFar || 0).toLocaleString()} XAF</Text></Col>
+                </Row>
+                <Row justify="space-between">
+                  <Col><Text type="secondary">Remaining Balance</Text></Col>
+                  <Col>
+                    <Text strong style={{ color: poHistoryBalance.remaining > 0 ? '#1890ff' : '#52c41a' }}>
+                      {(poHistoryBalance.remaining || 0).toLocaleString()} XAF
+                    </Text>
+                  </Col>
+                </Row>
+              </div>
+            )}
             <Table
-              size="small"
-              dataSource={invoiceHistoryData.invoices}
+              dataSource={poHistoryData}
               rowKey="_id"
+              size="small"
               pagination={false}
-              locale={{ emptyText: 'No invoices raised against this PO yet' }}
               columns={[
-                { title: 'Invoice #', dataIndex: 'invoiceNumber', key: 'invoiceNumber' },
                 {
-                  title: 'Amount', dataIndex: 'totalAmount', key: 'totalAmount',
-                  render: (v) => `XAF ${(v || 0).toLocaleString()}`
+                  title: 'Invoice #',
+                  dataIndex: 'invoiceNumber',
+                  render: (text) => <Tag color="cyan">{text}</Tag>
                 },
                 {
-                  title: 'Type', dataIndex: 'isPartialInvoice', key: 'isPartialInvoice',
-                  render: (isPartial) => <Tag color={isPartial ? 'gold' : 'blue'}>{isPartial ? 'Partial' : 'Full'}</Tag>
+                  title: 'Amount',
+                  dataIndex: 'totalAmount',
+                  render: (v) => `${Number(v || 0).toLocaleString()} XAF`
                 },
                 {
-                  title: 'Status', dataIndex: 'approvalStatus', key: 'approvalStatus',
+                  title: 'Status',
+                  dataIndex: 'status',
                   render: (s) => <Tag>{s}</Tag>
                 },
                 {
-                  title: 'Created By', key: 'createdBy',
-                  render: (_, r) => r.createdByDetails?.name || '—'
-                },
-                {
-                  title: 'Date', dataIndex: 'createdAt', key: 'createdAt',
-                  render: (d) => d ? moment(d).format('DD/MM/YYYY') : '—'
+                  title: 'Date',
+                  dataIndex: 'invoiceDate',
+                  render: (d) => d ? moment(d).format('DD/MM/YYYY') : '-'
                 }
               ]}
+              locale={{ emptyText: 'No invoices raised against this PO yet' }}
             />
           </>
-        ) : (
-          <Text type="secondary">No history available.</Text>
         )}
+      </Modal>
+
+      {/* Edit Customer PO Modal */}
+      <Modal
+        title={editingPO ? `Edit PO ${editingPO.poNumber}` : 'Edit Purchase Order'}
+        visible={editPOModalVisible}
+        onCancel={() => {
+          setEditPOModalVisible(false);
+          setEditingPO(null);
+          editPOForm.resetFields();
+        }}
+        onOk={() => editPOForm.submit()}
+        confirmLoading={editPOSaving}
+        okText="Save Changes"
+        width={600}
+      >
+        {editingPO && (editingPO.invoicedAmount || 0) > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            message={`${(editingPO.invoicedAmount || 0).toLocaleString()} XAF already invoiced against this PO`}
+            description="The PO amount cannot be reduced below what has already been invoiced."
+            style={{ marginBottom: 16 }}
+          />
+        )}
+        <Form form={editPOForm} layout="vertical" onFinish={handleSaveEditPO}>
+          <Form.Item name="poNumber" label="PO Number" rules={[{ required: true, message: 'PO number is required' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Description">
+            <TextArea rows={2} />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="amount" label="PO Total Amount (XAF)" rules={[{ required: true, message: 'Amount is required' }]}>
+                <InputNumber style={{ width: '100%' }} min={0} formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="poDate" label="PO Date">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="dueDate" label="Due Date">
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="notes" label="Notes">
+            <TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Close PO Invoicing Modal */}
+      <Modal
+        title={closingPO ? `Close PO ${closingPO.poNumber} to Further Invoicing` : 'Close Purchase Order'}
+        visible={closePOModalVisible}
+        onCancel={() => {
+          setClosePOModalVisible(false);
+          setClosingPO(null);
+          closePOForm.resetFields();
+        }}
+        onOk={() => closePOForm.submit()}
+        confirmLoading={closePOSaving}
+        okText="Close PO"
+        okButtonProps={{ danger: true }}
+      >
+        <Alert
+          type="info"
+          showIcon
+          message="This stops further invoices from being raised against this PO."
+          description="Any amount already invoiced against it is kept as-is — this does not mark the PO as fully invoiced, it only blocks new invoices. You can reopen it later if needed."
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={closePOForm} layout="vertical" onFinish={handleConfirmClosePO}>
+          <Form.Item name="reason" label="Reason (optional)">
+            <TextArea rows={3} placeholder="e.g. Client confirmed no further invoicing needed on this PO" />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

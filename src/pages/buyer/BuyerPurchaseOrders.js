@@ -538,11 +538,16 @@ const BuyerPurchaseOrders = () => {
         }))
       });
       if (res.success) {
-        message.success('PO updated');
+        const wasResubmit = selectedPO.status === 'rejected';
+        const newStatus = res.data?.purchaseOrder?.status;
+        const backToDraft = wasResubmit && newStatus === 'draft';
+        message.success(res.message || 'PO updated');
         notification.success({
-          message: 'Purchase Order Updated',
-          description: `PO ${selectedPO.poNumber} updated. New total: ${values.currency} ${total.toLocaleString()}`,
-          duration: 5
+          message: wasResubmit ? 'Purchase Order Resubmitted' : 'Purchase Order Updated',
+          description: wasResubmit
+            ? (res.message || `PO ${selectedPO.poNumber} was revised and resubmitted.`)
+            : `PO ${selectedPO.poNumber} updated. New total: ${values.currency} ${total.toLocaleString()}`,
+          duration: backToDraft || wasResubmit ? 8 : 5
         });
         setEditModalVisible(false);
         editForm.resetFields();

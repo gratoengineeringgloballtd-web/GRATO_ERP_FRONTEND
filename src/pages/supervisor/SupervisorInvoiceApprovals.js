@@ -374,11 +374,8 @@ const handleDownloadInvoice = async () => {
       setLoading(true);
       
       const isSupplierInvoice = selectedInvoice.invoiceType === 'supplier';
-      // Only the department-head step (always level 1) requires a signed document -
-      // every later approver (Head of Business, Finance, CEO) just approves or rejects.
-      const requiresSignature = isSupplierInvoice && selectedInvoice.currentApprovalLevel === 1;
       
-      if (requiresSignature && values.decision === 'approved' && !signedDocumentFile) {
+      if (isSupplierInvoice && values.decision === 'approved' && !signedDocumentFile) {
         message.error('Please download, sign, and upload the document before approving.');
         setLoading(false);
         return;
@@ -390,7 +387,7 @@ const handleDownloadInvoice = async () => {
       
       let response;
       
-      if (requiresSignature && values.decision === 'approved') {
+      if (isSupplierInvoice && values.decision === 'approved') {
         const formData = new FormData();
         formData.append('decision', values.decision);
         formData.append('comments', values.comments || '');
@@ -398,7 +395,7 @@ const handleDownloadInvoice = async () => {
         
         response = await api.put(endpoint, formData, {
           headers: {
-            'Content-Type': undefined
+            'Content-Type': 'multipart/form-data'
           }
         });
       } else {
@@ -636,9 +633,18 @@ const handleDownloadInvoice = async () => {
       dataIndex: 'invoiceAmount',
       key: 'amount',
       render: (amount, record) => (
-        <Text strong>{record.currency || 'XAF'} {amount ? amount.toLocaleString() : '0'}</Text>
+        <div>
+          <Text strong>{record.currency || 'XAF'} {amount ? amount.toLocaleString() : '0'}</Text>
+          {record.poBalance && record.poBalance.invoicingStatus === 'partially_invoiced' && (
+            <div>
+              <Tag color="orange" style={{ marginTop: 4 }}>
+                Partial — {record.poBalance.remaining?.toLocaleString()} left on PO
+              </Tag>
+            </div>
+          )}
+        </div>
       ),
-      width: 120
+      width: 150
     },
     {
       title: 'Status',
@@ -899,8 +905,7 @@ const handleDownloadInvoice = async () => {
         title={
           <Space>
             <AuditOutlined />
-            {selectedInvoice?.invoiceType === 'supplier' && selectedInvoice?.currentApprovalLevel === 1
-              ? 'Sign & Approve Invoice' : 'Invoice Approval Decision'}
+            {selectedInvoice?.invoiceType === 'supplier' ? 'Sign & Approve Invoice' : 'Invoice Approval Decision'}
           </Space>
         }
         open={approvalModalVisible}
@@ -911,15 +916,13 @@ const handleDownloadInvoice = async () => {
           resetSigningWorkflow();
         }}
         footer={null}
-        width={selectedInvoice?.invoiceType === 'supplier' && selectedInvoice?.currentApprovalLevel === 1 ? 800 : 700}
+        width={selectedInvoice?.invoiceType === 'supplier' ? 800 : 700}
         maskClosable={false}
       >
         {selectedInvoice && (
           <div>
-            {selectedInvoice.invoiceType === 'supplier' && selectedInvoice.currentApprovalLevel === 1 ? (
-              // Supplier Invoice Signing Workflow - department-head step only (always level 1).
-              // Every later approver (Head of Business, Finance, CEO) just approves or rejects,
-              // same as employee invoices - no document to download, sign, or re-upload.
+            {selectedInvoice.invoiceType === 'supplier' ? (
+              // Supplier Invoice Signing Workflow
               <>
                 <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f0f8ff' }}>
                   <Descriptions size="small" column={2}>
@@ -1068,17 +1071,37 @@ const handleDownloadInvoice = async () => {
                 </Form>
               </>
             ) : (
-              // Simple Approval (employee invoices, and supplier invoices beyond the
-              // department-head step - Head of Business, Finance, CEO just decide, no
-              // document workflow)
+              // Employee Invoice Simple Approval
               <>
                 <Alert
                   message="Review Required"
-                  description={`Please review and make a decision on this ${selectedInvoice.invoiceType === 'supplier' ? 'supplier' : 'employee'} invoice.`}
+                  description="Please review and make a decision on this employee invoice."
                   type="info"
                   showIcon
                   style={{ marginBottom: '16px' }}
                 />
+
+                {selectedInvoice.poBalance && (
+                  <Alert
+                    type={selectedInvoice.poBalance.invoicingStatus === 'fully_invoiced' ? 'success' : 'warning'}
+                    showIcon
+                    style={{ marginBottom: '16px' }}
+                    message={
+                      selectedInvoice.poBalance.invoicingStatus === 'fully_invoiced'
+                        ? `This is the final invoice against PO ${selectedInvoice.poBalance.poNumber}`
+                        : `This is a PARTIAL invoice against PO ${selectedInvoice.poBalance.poNumber} — not its full value`
+                    }
+                    description={
+                      <span>
+                        PO Total: <Text strong>{(selectedInvoice.poBalance.poTotal || 0).toLocaleString()} XAF</Text>
+                        {'  •  '}
+                        Invoiced to date (incl. this one): <Text strong>{(selectedInvoice.poBalance.invoicedSoFar || 0).toLocaleString()} XAF</Text>
+                        {'  •  '}
+                        Remaining after this: <Text strong>{(selectedInvoice.poBalance.remaining || 0).toLocaleString()} XAF</Text>
+                      </span>
+                    }
+                  />
+                )}
 
                 <Descriptions bordered column={2} size="small" style={{ marginBottom: '20px' }}>
                   <Descriptions.Item label="PO Number">
@@ -1092,10 +1115,8 @@ const handleDownloadInvoice = async () => {
                       {selectedInvoice.currency || 'XAF'} {selectedInvoice.invoiceAmount?.toLocaleString()}
                     </Text>
                   </Descriptions.Item>
-                  <Descriptions.Item label={selectedInvoice.invoiceType === 'supplier' ? 'Supplier' : 'Employee'}>
-                    {selectedInvoice.invoiceType === 'supplier'
-                      ? selectedInvoice.supplierDetails?.companyName
-                      : (selectedInvoice.employeeDetails?.name || selectedInvoice.employee?.fullName)}
+                  <Descriptions.Item label="Employee">
+                    {selectedInvoice.employeeDetails?.name || selectedInvoice.employee?.fullName}
                   </Descriptions.Item>
                 </Descriptions>
 
@@ -1292,7 +1313,7 @@ const handleDownloadInvoice = async () => {
                           )}
                           {step.status === 'approved' && (
                             <>
-                              <Tag color="green">{step.level === 1 ? 'Approved & Signed' : 'Approved'}</Tag>
+                              <Tag color="green">Approved & Signed</Tag>
                               {step.actionDate && (
                                 <Text type="secondary">
                                   {new Date(step.actionDate).toLocaleDateString('en-GB')} 

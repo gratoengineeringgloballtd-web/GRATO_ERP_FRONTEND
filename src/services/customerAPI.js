@@ -399,6 +399,42 @@ class CustomerApiService {
       };
     }
   }
+
+  // Close a PO to further (partial) invoicing
+  async closePurchaseOrderInvoicing(customerId, poId, reason = '') {
+    try {
+      const response = await api.patch(`/customers/${customerId}/purchase-orders/${poId}/close-invoicing`, { reason });
+      return {
+        success: true,
+        data: response.data.data,
+        message: response.data.message || 'Purchase Order closed to further invoicing'
+      };
+    } catch (error) {
+      console.error('Error closing purchase order invoicing:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to close purchase order'
+      };
+    }
+  }
+
+  // Reopen a previously-closed PO for invoicing
+  async reopenPurchaseOrderInvoicing(customerId, poId) {
+    try {
+      const response = await api.patch(`/customers/${customerId}/purchase-orders/${poId}/reopen-invoicing`);
+      return {
+        success: true,
+        data: response.data.data,
+        message: response.data.message || 'Purchase Order reopened for invoicing'
+      };
+    } catch (error) {
+      console.error('Error reopening purchase order invoicing:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to reopen purchase order'
+      };
+    }
+  }
 }
 
 export default new CustomerApiService();

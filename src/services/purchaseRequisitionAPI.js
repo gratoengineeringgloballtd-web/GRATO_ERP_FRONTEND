@@ -246,6 +246,42 @@ export const purchaseRequisitionAPI = {
     }
   },
 
+  // Add (or remove) attachments on an existing draft / pending-supervisor
+  // requisition, without touching its other fields. Uses fetch (like
+  // createRequisition) rather than the apiClient axios instance, because
+  // apiClient forces a 'application/json' Content-Type by default, which
+  // would stop the browser from setting the multipart boundary FormData
+  // needs — the same class of bug this fix is closing elsewhere.
+  addAttachments: async (requisitionId, formData) => {
+    try {
+      const token = localStorage.getItem('token');
+      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+      const response = await fetch(`${API_BASE_URL}/purchase-requisitions/${requisitionId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`
+          // DO NOT set Content-Type - browser will set it with boundary for multipart/form-data
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to add attachment');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Add attachment error:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to add attachment'
+      };
+    }
+  },
+
   deleteRequisition: async (requisitionId) => {
     try {
       const response = await apiClient.delete(`/purchase-requisitions/${requisitionId}`);
@@ -601,20 +637,6 @@ export const purchaseRequisitionAPI = {
     }
   },
 
-  // Supply chain invoice queue stats (pending assignment / in approval chain / today's activity)
-  getSupplyChainInvoiceStats: async () => {
-    try {
-      const response = await apiClient.get('/suppliers/supply-chain/dashboard/stats');
-      return response.data;
-    } catch (error) {
-      console.error('Get supply chain invoice stats error:', error);
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Failed to fetch supply chain invoice stats'
-      };
-    }
-  },
-
   // Analytics endpoints
   getDashboardStats: async () => {
     try {
@@ -666,47 +688,6 @@ export const purchaseRequisitionAPI = {
       return {
         success: false,
         message: error.response?.data?.message || 'Failed to fetch procurement planning data'
-      };
-    }
-  },
-
-  getBuyerAssignmentTracking: async (params = {}) => {
-    try {
-      const response = await apiClient.get('/purchase-requisitions/procurement/buyer-tracking', { params });
-      return response.data;
-    } catch (error) {
-      console.error('Get buyer assignment tracking error:', error);
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Failed to fetch buyer assignment tracking'
-      };
-    }
-  },
-
-  // Download an Excel export of requisition data.
-  // reportType: 'requisition_summary' | 'requisition_spend' | 'requisition_pending_approvals'
-  exportRequisitionReport: async (reportType = 'requisition_summary', filters = {}) => {
-    try {
-      const params = new URLSearchParams({ type: reportType, ...filters }).toString();
-      const response = await apiClient.get(`/purchase-requisitions/reports/export?${params}`, {
-        responseType: 'blob'
-      });
-
-      const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = `${reportType}_${new Date().toISOString().split('T')[0]}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
-
-      return { success: true, message: 'Download started' };
-    } catch (error) {
-      console.error('Export requisition report error:', error);
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Failed to export report'
       };
     }
   },
@@ -868,19 +849,9 @@ export const purchaseRequisitionAPI = {
    */
   resubmitRequisition: async (requisitionId, data) => {
     try {
-      // data is a FormData instance (built by the caller to include files). The
-      // apiClient instance sets a default 'Content-Type: application/json' header,
-      // which - if left in place - overrides the multipart boundary the browser would
-      // otherwise generate, so the backend's multer middleware never sees req.files at
-      // all. Deleting the header (not just overwriting its value) lets the browser set
-      // 'multipart/form-data; boundary=...' itself, which is the only reliable way to
-      // get the boundary right.
-      const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
-      const config = isFormData ? { headers: { 'Content-Type': undefined } } : undefined;
       const response = await apiClient.post(
         `/purchase-requisitions/${requisitionId}/resubmit`,
-        data,
-        config
+        data
       );
       return response.data;
     } catch (error) {

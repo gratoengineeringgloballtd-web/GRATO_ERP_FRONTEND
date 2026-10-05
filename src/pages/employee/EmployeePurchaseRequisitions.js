@@ -299,7 +299,16 @@ const EmployeePurchaseRequisitions = ({ onCreateNew }) => {
       );
 
       if (response.success) {
-        message.success('Requisition resubmitted successfully!');
+        const failed = response.attachments?.failed || [];
+        if (failed.length > 0) {
+          const failedNames = failed.map(f => f.name).join(', ');
+          message.warning({
+            content: `Requisition resubmitted, but ${failed.length} attachment(s) failed to upload (${failedNames}). Reopen it and add ${failed.length > 1 ? 'them' : 'it'} again from the details view.`,
+            duration: 10
+          });
+        } else {
+          message.success('Requisition resubmitted successfully!');
+        }
         resubmitForm.resetFields();
         setResubmitModalVisible(false);
         setSelectedRequisition(null);
@@ -379,6 +388,44 @@ const EmployeePurchaseRequisitions = ({ onCreateNew }) => {
       console.error('Error previewing attachment:', error);
       message.error('Failed to preview attachment');
     }
+  };
+
+  // Lets an employee add a document to a requisition that's already been
+  // created (draft or still pending_supervisor) — e.g. to fix a requisition
+  // that was submitted without the intended attachment, without having to
+  // recreate the whole thing.
+  const [addingAttachment, setAddingAttachment] = useState(false);
+
+  const handleAddAttachment = async (requisitionId, file) => {
+    setAddingAttachment(true);
+    try {
+      const formData = new FormData();
+      formData.append('attachments', file);
+      const response = await purchaseRequisitionAPI.addAttachments(requisitionId, formData);
+
+      if (response.success) {
+        const failed = response.attachments?.failed || [];
+        if (failed.length > 0) {
+          message.error(`Failed to upload "${file.name}": ${failed[0].error || 'Upload failed'}`);
+        } else {
+          message.success(`"${file.name}" attached successfully`);
+        }
+        // Refresh the open detail view and the underlying list so the
+        // new attachment (or its absence, if it failed) is visible right away.
+        if (response.data) {
+          setSelectedRequisition(response.data);
+        }
+        await fetchRequisitions();
+      } else {
+        message.error(response.message || `Failed to attach "${file.name}"`);
+      }
+    } catch (error) {
+      console.error('Error adding attachment:', error);
+      message.error(`Failed to attach "${file.name}"`);
+    } finally {
+      setAddingAttachment(false);
+    }
+    return false; // prevent antd's default upload behaviour
   };
 
   const renderAttachments = (attachments, requisitionId) => {
@@ -984,14 +1031,26 @@ const handleSubmitCancellation = async () => {
             </Card>
 
             {/* Attachments Section */}
-            <Card 
-              size="small" 
+            <Card
+              size="small"
               title={
                 <Space>
                   <PaperClipOutlined />
                   Attachments ({selectedRequisition.attachments?.length || 0})
                 </Space>
-              } 
+              }
+              extra={
+                ['draft', 'pending_supervisor'].includes(selectedRequisition.status) && (
+                  <Upload
+                    showUploadList={false}
+                    beforeUpload={(file) => handleAddAttachment(selectedRequisition._id, file)}
+                  >
+                    <Button size="small" icon={<UploadOutlined />} loading={addingAttachment}>
+                      Add Document
+                    </Button>
+                  </Upload>
+                )
+              }
               style={{ marginBottom: '16px' }}
             >
               {renderAttachments(selectedRequisition.attachments, selectedRequisition._id)}

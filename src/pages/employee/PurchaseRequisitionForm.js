@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSelector } from 'react-redux';
-
 import {
   Card,
   Form,
@@ -55,8 +54,6 @@ import { itemAPI } from '../../services/itemAPI';
 import supplierApiService from '../../services/supplierAPI';
 import moment from 'moment';
 import '../../styles/dropdownZIndex.css';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -800,7 +797,7 @@ const EnhancedPurchaseRequisitionForm = ({ onSubmit, onCancel, onSaveDraft, edit
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/files/download/${encodeURIComponent(publicId)}`, {
+      const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -1015,17 +1012,23 @@ const EnhancedPurchaseRequisitionForm = ({ onSubmit, onCancel, onSaveDraft, edit
       const response = await purchaseRequisitionAPI.createRequisition(formData);
 
       if (response.success) {
-        message.success('Purchase requisition submitted successfully!');
-        
         if (response.attachments) {
-          const { uploaded, total } = response.attachments;
+          const { uploaded, total, failed } = response.attachments;
           if (uploaded < total) {
-            message.warning(`${uploaded} out of ${total} attachments uploaded successfully`);
+            const failedNames = (failed || []).map(f => f.name).join(', ');
+            message.warning({
+              content: `Requisition submitted, but ${total - uploaded} of ${total} attachment(s) failed to upload${failedNames ? ` (${failedNames})` : ''}. Open the requisition and re-attach ${total - uploaded > 1 ? 'them' : 'it'} from the details view.`,
+              duration: 10
+            });
           } else if (uploaded > 0) {
-            message.success(`All ${uploaded} attachments uploaded successfully`);
+            message.success(`Purchase requisition submitted — all ${uploaded} attachment(s) uploaded successfully`);
+          } else {
+            message.success('Purchase requisition submitted successfully!');
           }
+        } else {
+          message.success('Purchase requisition submitted successfully!');
         }
-        
+
         if (onSubmit) {
           onSubmit(response.data);
         }
@@ -3447,7 +3450,7 @@ export default EnhancedPurchaseRequisitionForm;
 //         return;
 //       }
 
-//       const response = await fetch(`${API_BASE_URL}/api/files/download/${encodeURIComponent(publicId)}`, {
+//       const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
 //         method: 'GET',
 //         headers: {
 //           'Authorization': `Bearer ${token}`,
@@ -6094,7 +6097,7 @@ export default EnhancedPurchaseRequisitionForm;
 // //         return;
 // //       }
 
-// //       const response = await fetch(`${API_BASE_URL}/api/files/download/${encodeURIComponent(publicId)}`, {
+// //       const response = await fetch(`/api/files/download/${encodeURIComponent(publicId)}`, {
 // //         method: 'GET',
 // //         headers: {
 // //           'Authorization': `Bearer ${token}`,
