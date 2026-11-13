@@ -39,8 +39,8 @@ const defaultJournalLines = JSON.stringify(
    { account: '', description: 'Credit line', debit: 0, credit: 0 }], null, 2
 );
 const defaultRuleLines = JSON.stringify(
-  [{ side: 'debit', accountCode: '1000', amountSource: 'gross', description: 'Main debit' },
-   { side: 'credit', accountCode: '4000', amountSource: 'gross', description: 'Main credit' }], null, 2
+  [{ side: 'debit', accountCode: '571', amountSource: 'gross', description: 'Main debit' },
+   { side: 'credit', accountCode: '706', amountSource: 'gross', description: 'Main credit' }], null, 2
 );
 const monthOptions = [
   {label:'Jan',value:1},{label:'Feb',value:2},{label:'Mar',value:3},{label:'Apr',value:4},
@@ -182,8 +182,8 @@ const FinanceAccountingCenter = () => {
     try {
       setRecoLoading(true);
       const [txRes, sumRes] = await Promise.all([
-        accountingAPI.getBankTransactions({ accountCode: '1010', ...params }),
-        accountingAPI.getReconciliationSummary({ accountCode: '1010' })
+        accountingAPI.getBankTransactions({ accountCode: '521', ...params }),
+        accountingAPI.getReconciliationSummary({ accountCode: '521' })
       ]);
       setBankTxs(txRes.transactions || []);
       setRecoSummary(sumRes.data || null);
@@ -335,7 +335,7 @@ const FinanceAccountingCenter = () => {
     try {
       let rows;
       try { rows = JSON.parse(values.csvJson); } catch { throw new Error('Invalid JSON'); }
-      const res = await accountingAPI.importBankTransactions({ rows, accountCode: values.accountCode || '1010' });
+      const res = await accountingAPI.importBankTransactions({ rows, accountCode: values.accountCode || '521' });
       message.success(`${res.imported} transactions imported`);
       setImportModalOpen(false); importForm.resetFields(); await loadBankTxs();
     } catch (err) { message.error(err.response?.data?.message || err.message || 'Import failed'); }
@@ -1052,7 +1052,7 @@ const FinanceAccountingCenter = () => {
       {/* Record Payment */}
       <Modal open={paymentModalOpen} title="Record Payment" onCancel={() => setPaymentModalOpen(false)} footer={null}>
         <Form form={paymentForm} layout="vertical" onFinish={handleCreatePayment}
-          initialValues={{ paymentDate: today, bankAccount: '1010', autoPost: true }}>
+          initialValues={{ paymentDate: today, bankAccount: '521', autoPost: true }}>
           <Form.Item name="type"          label="Type"           rules={[{ required: true }]}>
             <Select options={[{ value: 'receipt', label: 'Receipt (customer pays us)' }, { value: 'disbursement', label: 'Disbursement (we pay supplier)' }]} />
           </Form.Item>
@@ -1062,7 +1062,7 @@ const FinanceAccountingCenter = () => {
             <Select options={['bank_transfer','cash','cheque','mobile_money'].map(v => ({ value: v, label: v }))} />
           </Form.Item>
           <Form.Item name="bankAccount"   label="Bank Account">
-            <Select options={[{ value: '1010', label: '1010 Bank Account' }, { value: '1000', label: '1000 Cash on Hand' }]} />
+            <Select options={[{ value: '521', label: '521 Banques locales' }, { value: '571', label: '571 Caisse' }]} />
           </Form.Item>
           <Form.Item name="invoiceId"     label="Invoice ID (optional)"><Input placeholder="ObjectId" /></Form.Item>
           <Form.Item name="supplierInvoiceId" label="Supplier Invoice ID (optional)"><Input placeholder="ObjectId" /></Form.Item>
@@ -1078,9 +1078,9 @@ const FinanceAccountingCenter = () => {
       {/* Import Bank Transactions */}
       <Modal open={importModalOpen} title="Import Bank Transactions" onCancel={() => setImportModalOpen(false)} footer={null}>
         <Form form={importForm} layout="vertical" onFinish={handleImportBankCSV}
-          initialValues={{ accountCode: '1010' }}>
+          initialValues={{ accountCode: '521' }}>
           <Form.Item name="accountCode" label="Bank Account">
-            <Select options={[{ value: '1010', label: '1010 Bank Account' }, { value: '1000', label: '1000 Cash on Hand' }]} />
+            <Select options={[{ value: '521', label: '521 Banques locales' }, { value: '571', label: '571 Caisse' }]} />
           </Form.Item>
           <Form.Item name="csvJson" label='Transactions JSON array' rules={[{ required: true }]}
             help='Format: [{"date":"2026-02-01","description":"Payment","amount":50000,"reference":"REF001"}, ...]'>
@@ -1164,8 +1164,8 @@ export default FinanceAccountingCenter;
 
 // const defaultRuleLines = JSON.stringify(
 //   [
-//     { side: 'debit', accountCode: '1000', amountSource: 'gross', description: 'Main debit' },
-//     { side: 'credit', accountCode: '4000', amountSource: 'gross', description: 'Main credit' }
+//     { side: 'debit', accountCode: '571', amountSource: 'gross', description: 'Main debit' },
+//     { side: 'credit', accountCode: '706', amountSource: 'gross', description: 'Main credit' }
 //   ],
 //   null,
 //   2

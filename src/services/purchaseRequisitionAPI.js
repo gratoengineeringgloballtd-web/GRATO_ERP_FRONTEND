@@ -692,6 +692,42 @@ export const purchaseRequisitionAPI = {
     }
   },
 
+  getSupplyChainAnalytics: async (period = 'quarterly', category = 'all') => {
+    try {
+      const response = await apiClient.get('/purchase-requisitions/analytics/supply-chain', {
+        params: { period, category }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Get supply chain analytics error:', error);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to fetch supply chain analytics'
+      };
+    }
+  },
+
+  getBuyerAssignmentTracking: async () => {
+    try {
+      const response = await apiClient.get('/purchase-requisitions/buyer-assignment-tracking');
+      return response.data;
+    } catch (error) {
+      console.error('Get buyer assignment tracking error:', error);
+      return { success: false, message: error.response?.data?.message || 'Failed to fetch buyer tracking' };
+    }
+  },
+
+  // Supplier-invoice queue stats for the supply chain dashboard (non-critical; degrades to N/A)
+  getSupplyChainInvoiceStats: async () => {
+    try {
+      const response = await apiClient.get('/suppliers/supply-chain/dashboard/stats');
+      return response.data;
+    } catch (error) {
+      console.error('Get supply chain invoice stats error:', error);
+      return { success: false, message: error.response?.data?.message || 'Failed to fetch invoice stats' };
+    }
+  },
+
   // Generic role-based endpoint
   getRequisitionsByRole: async (params = {}) => {
     try {

@@ -904,10 +904,29 @@ const ITDashboard = () => {
           >
             Critical Issues
           </Button>
-          <Button 
+          <Button
             icon={<CalendarOutlined />}
           >
             Schedule Maintenance
+          </Button>
+        </Space>
+      </Card>
+
+      {/* IT Console */}
+      <Card title="IT Console" style={{ marginTop: '16px' }}>
+        <Space wrap>
+          <Button
+            type="primary"
+            icon={<UserOutlined />}
+            onClick={() => navigate('/it/user-accounts')}
+          >
+            User Accounts
+          </Button>
+          <Button
+            icon={<DashboardOutlined />}
+            onClick={() => navigate('/it/system-monitoring')}
+          >
+            System Monitoring &amp; Logs
           </Button>
         </Space>
       </Card>

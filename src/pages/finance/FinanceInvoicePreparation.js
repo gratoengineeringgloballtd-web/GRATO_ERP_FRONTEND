@@ -85,16 +85,24 @@ const FinanceInvoicePreparation = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewInvoice, setPreviewInvoice] = useState(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editTotals, setEditTotals] = useState({ subtotal: 0, tax: 0 });
+  const [editForm] = Form.useForm();
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   
   // Filter/Tab states
-  const [activeTab, setActiveTab] = useState('po-list');
+  const [activeTab, setActiveTab] = useState('invoice-list');
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   
   // Upload states
-  const [invoiceFile, setInvoiceFile] = useState(null);
   const [clientPOFile, setClientPOFile] = useState(null); // the client's PO document to invoice from
   const [fileUploading, setFileUploading] = useState(false);
   
@@ -157,26 +165,24 @@ const FinanceInvoicePreparation = () => {
     try {
       setLoading(true);
       
-      // Fetch Purchase Orders for Finance
-      const [posRes, invoicesRes, suppliersRes, itemsRes] = await Promise.all([
-        api.get('/purchase-orders/finance/for-invoicing')
-          .catch(() => ({ data: { success: false, data: [] } })),
+      // Invoices are isolated from system POs (the PO tab is disabled), and
+      // the supplier list isn't used on this page — so only the prepared
+      // invoices and the item catalogue are fetched. The old calls to
+      // /purchase-orders/finance/for-invoicing and /suppliers had no matching
+      // backend routes and just produced 404s.
+      const [invoicesRes, itemsRes] = await Promise.all([
         api.get('/invoices/finance/prepared')
-          .catch(() => ({ data: { success: false, data: [] } })),
-        api.get('/suppliers')
           .catch(() => ({ data: { success: false, data: [] } })),
         api.get('/items')
           .catch(() => ({ data: { success: false, data: [] } }))
       ]);
 
-      const pos = posRes.data.success ? posRes.data.data : [];
+      const pos = [];
       const invs = invoicesRes.data.success ? invoicesRes.data.data : [];
-      const sups = suppliersRes.data.success ? suppliersRes.data.data : [];
       const itemsArr = itemsRes.data.success ? itemsRes.data.data : [];
 
       setPurchaseOrders(pos);
       setInvoices(invs);
-      setSuppliers(sups);
       setItems(itemsArr);
 
       // Calculate stats
@@ -282,8 +288,8 @@ const FinanceInvoicePreparation = () => {
         employee: userInfo._id || userInfo.id,
         invoiceNumber: invoiceNumber,
         poNumber: selectedPO?.poNumber || undefined,
-        invoiceDate: values.invoiceDate.toISOString(),
-        dueDate: values.dueDate.toISOString(),
+        invoiceDate: values.invoiceDate.format('YYYY-MM-DD'),
+        dueDate: values.dueDate.format('YYYY-MM-DD'),
         totalAmount: values.totalAmount || 0,
         taxAmount: values.taxAmount || 0,
         description: values.description || '',
@@ -326,8 +332,9 @@ const FinanceInvoicePreparation = () => {
         }));
       }
 
-      // Build multipart form data so the client's PO file (and/or the
-      // invoice document) can be attached alongside the regular fields.
+      // Build multipart form data so the client's PO file can be attached
+      // alongside the regular fields. (No separate invoice file — this form
+      // IS the invoice, so the system generates it.)
       const formData = new FormData();
       Object.entries(invoiceData).forEach(([key, value]) => {
         if (value === undefined || value === null) return;
@@ -340,9 +347,6 @@ const FinanceInvoicePreparation = () => {
       if (clientPOFile) {
         formData.append('poFile', clientPOFile);
       }
-      if (invoiceFile) {
-        formData.append('invoiceFile', invoiceFile);
-      }
 
       const response = await api.post('/invoices/finance/prepare', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -352,7 +356,6 @@ const FinanceInvoicePreparation = () => {
         message.success('Invoice prepared successfully');
         setCreateModalVisible(false);
         setUploadModalVisible(false);
-        setInvoiceFile(null);
         setClientPOFile(null);
         form.resetFields();
         setSelectedPO(null);
@@ -367,17 +370,42 @@ const FinanceInvoicePreparation = () => {
     }
   };
 
-  const handleUploadFile = async (file) => {
-    setInvoiceFile(file);
-    return false; // Prevent auto upload
-  };
-
   const handleUploadClientPO = (file) => {
     setClientPOFile(file);
     return false; // Prevent antd's auto upload — we send it ourselves on submit
   };
 
   // Opens a stored invoice/PO file (Cloudinary) in a new tab
+  // Open the client's PO attached to an invoice (streamed through the API, so private files work)
+  const handleViewClientPO = async (invoice) => {
+    if (!invoice?._id) return;
+    const key = 'clientpo';
+    message.loading({ content: 'Opening client PO...', key });
+    try {
+      const response = await api.get(`/invoices/finance/prepared/${invoice._id}/client-po`, { responseType: 'blob' });
+      const type = response.data.type || 'application/pdf';
+      const url = window.URL.createObjectURL(new Blob([response.data], { type }));
+      const win = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = invoice.poFile?.originalName || `ClientPO_${invoice.invoiceNumber}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      message.destroy(key);
+    } catch (error) {
+      let msg = 'Failed to open the client PO';
+      try {
+        const text = await error.response?.data?.text?.();
+        if (text) msg = JSON.parse(text).message || msg;
+      } catch (e) { /* keep default */ }
+      message.error({ content: msg, key });
+    }
+  };
+
   const handleViewInvoiceFile = async (type, publicId) => {
     if (!publicId) return;
     try {
@@ -593,6 +621,87 @@ const FinanceInvoicePreparation = () => {
     });
   };
 
+  // ---- Preview the generated invoice PDF in a window ----
+  const closePreview = () => {
+    setPreviewVisible(false);
+    if (previewUrl) window.URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setPreviewInvoice(null);
+  };
+
+  const handlePreviewInvoice = async (record) => {
+    setPreviewInvoice(record);
+    setPreviewVisible(true);
+    setPreviewLoading(true);
+    try {
+      const response = await api.get(`/invoices/finance/prepared/${record._id}/pdf`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      setPreviewUrl(window.URL.createObjectURL(blob));
+    } catch (error) {
+      message.error('Failed to load the invoice preview');
+      setPreviewVisible(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // ---- Edit a draft invoice ----
+  const calcEditTotals = (items) => {
+    const list = items || [];
+    const subtotal = list.reduce((sum, it) => sum + ((it?.quantity || 0) * (it?.unitPrice || 0)), 0);
+    const tax = list.reduce((sum, it) => sum + ((it?.quantity || 0) * (it?.unitPrice || 0)) * ((it?.taxRate || 0) / 100), 0);
+    return { subtotal, tax };
+  };
+
+  const handleOpenEditInvoice = (record) => {
+    const items = (record.items && record.items.length ? record.items : [{ description: '', quantity: 1, unitPrice: 0, taxRate: 19.25 }])
+      .map(it => ({
+        description: it.description,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        taxRate: it.taxRate
+      }));
+    setEditingInvoice(record);
+    editForm.resetFields();
+    editForm.setFieldsValue({
+      invoiceDate: record.invoiceDate ? moment(record.invoiceDate) : moment(),
+      dueDate: record.dueDate ? moment(record.dueDate) : moment().add(30, 'days'),
+      paymentTerms: record.paymentTerms,
+      description: record.description,
+      items
+    });
+    setEditTotals(calcEditTotals(items));
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEditInvoice = async (values) => {
+    if (!editingInvoice) return;
+    try {
+      setEditSaving(true);
+      const { subtotal, tax } = calcEditTotals(values.items);
+      const response = await api.put(`/invoices/${editingInvoice._id}/finance`, {
+        invoiceDate: values.invoiceDate.format('YYYY-MM-DD'),
+        dueDate: values.dueDate.format('YYYY-MM-DD'),
+        paymentTerms: values.paymentTerms,
+        description: values.description || '',
+        items: values.items,
+        totalAmount: subtotal,
+        taxAmount: tax
+      });
+      if (response.data.success) {
+        message.success('Invoice updated');
+        setEditModalVisible(false);
+        setEditingInvoice(null);
+        await fetchAllData();
+        await fetchCustomersAndPOs();
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Failed to update invoice');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const handleDownloadInvoicePdf = async (invoiceId, invoiceNumber) => {
     try {
       const response = await api.get(`/invoices/finance/prepared/${invoiceId}/pdf`, {
@@ -630,10 +739,10 @@ const FinanceInvoicePreparation = () => {
       width: 180
     },
     {
-      title: 'Amount',
+      title: 'Total (incl. VAT)',
       dataIndex: 'totalAmount',
       key: 'amount',
-      render: (amount) => <Text strong style={{ color: '#1890ff' }}>XAF {amount?.toLocaleString()}</Text>,
+      render: (amount, record) => <Text strong style={{ color: '#1890ff' }}>XAF {((amount || 0) + (record?.taxAmount || 0)).toLocaleString()}</Text>,
       width: 140
     },
     {
@@ -876,16 +985,30 @@ const FinanceInvoicePreparation = () => {
       width: 150
     },
     {
-      title: 'Supplier',
-      dataIndex: ['supplier', 'name'],
+      title: 'Customer / Supplier',
       key: 'supplier',
-      width: 180
+      render: (_, record) => {
+        const name = record.customerDetails?.name
+          || record.supplierDetails?.name
+          || record.supplier?.name
+          || record.customer?.companyName
+          || '-';
+        return (
+          <div>
+            <Text strong>{name}</Text>
+            {record.customerDetails?.name && record.supplierDetails?.name && record.supplierDetails.name !== record.customerDetails.name && (
+              <div><Text type="secondary" style={{ fontSize: 12 }}>Supplier: {record.supplierDetails.name}</Text></div>
+            )}
+          </div>
+        );
+      },
+      width: 200
     },
     {
-      title: 'Amount',
+      title: 'Total (incl. VAT)',
       dataIndex: 'totalAmount',
       key: 'totalAmount',
-      render: (amount) => <Text strong style={{ color: '#1890ff' }}>XAF {amount?.toLocaleString()}</Text>,
+      render: (amount, record) => <Text strong style={{ color: '#1890ff' }}>XAF {((amount || 0) + (record?.taxAmount || 0)).toLocaleString()}</Text>,
       width: 140
     },
     {
@@ -931,14 +1054,11 @@ const FinanceInvoicePreparation = () => {
       key: 'action',
       render: (_, record) => (
         <Space>
-          <Tooltip title="View Details">
+          <Tooltip title="Preview invoice">
             <Button
               icon={<EyeOutlined />}
               size="small"
-              onClick={() => {
-                setSelectedInvoice(record);
-                setDetailDrawerVisible(true);
-              }}
+              onClick={() => handlePreviewInvoice(record)}
             />
           </Tooltip>
           {record.status === 'draft' && (
@@ -947,10 +1067,7 @@ const FinanceInvoicePreparation = () => {
                 <Button
                   icon={<EditOutlined />}
                   size="small"
-                  onClick={() => {
-                    setSelectedInvoice(record);
-                    // TODO: Open edit modal
-                  }}
+                  onClick={() => handleOpenEditInvoice(record)}
                 />
               </Tooltip>
               <Tooltip title="Submit for Approval">
@@ -983,7 +1100,7 @@ const FinanceInvoicePreparation = () => {
               <Button
                 icon={<FilePdfOutlined />}
                 size="small"
-                onClick={() => handleViewInvoiceFile('po', record.poFile.publicId)}
+                onClick={() => handleViewClientPO(record)}
               />
             </Tooltip>
           )}
@@ -1101,6 +1218,30 @@ const FinanceInvoicePreparation = () => {
         <TabPane 
           tab={
             <span>
+              <DollarOutlined /> My Invoices ({invoices.length})
+            </span>
+          } 
+          key="invoice-list"
+        >
+          <Card>
+            {invoices.length === 0 ? (
+              <Empty description="No invoices prepared yet" />
+            ) : (
+              <Table
+                columns={invoiceColumns}
+                dataSource={invoices}
+                rowKey="_id"
+                size="middle"
+                pagination={{ pageSize: 10 }}
+                loading={loading}
+              />
+            )}
+          </Card>
+        </TabPane>
+
+        <TabPane 
+          tab={
+            <span>
               <FileTextOutlined /> Customer Purchase Orders ({customerPOs.length})
             </span>
           } 
@@ -1162,30 +1303,6 @@ const FinanceInvoicePreparation = () => {
             )}
           </Card>
         </TabPane>
-
-        <TabPane 
-          tab={
-            <span>
-              <DollarOutlined /> My Invoices ({invoices.length})
-            </span>
-          } 
-          key="invoice-list"
-        >
-          <Card>
-            {invoices.length === 0 ? (
-              <Empty description="No invoices prepared yet" />
-            ) : (
-              <Table
-                columns={invoiceColumns}
-                dataSource={invoices}
-                rowKey="_id"
-                size="middle"
-                pagination={{ pageSize: 10 }}
-                loading={loading}
-              />
-            )}
-          </Card>
-        </TabPane>
       </Tabs>
 
       {/* Create Invoice Modal */}
@@ -1195,7 +1312,6 @@ const FinanceInvoicePreparation = () => {
         onCancel={() => {
           setCreateModalVisible(false);
           setUploadModalVisible(false);
-          setInvoiceFile(null);
           setClientPOFile(null);
           form.resetFields();
         }}
@@ -1288,7 +1404,7 @@ const FinanceInvoicePreparation = () => {
                 label="Invoice Date"
                 rules={[{ required: true, message: 'Select invoice date' }]}
               >
-                <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
+                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
               </Form.Item>
             </Col>
             <Col span={8}>
@@ -1306,7 +1422,7 @@ const FinanceInvoicePreparation = () => {
                 label="Due Date"
                 rules={[{ required: true, message: 'Select due date' }]}
               >
-                <DatePicker style={{ width: '100%' }} format="MM/DD/YYYY" />
+                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
               </Form.Item>
             </Col>
           </Row>
@@ -1745,26 +1861,6 @@ const FinanceInvoicePreparation = () => {
             </Dragger>
           </Form.Item>
 
-          <Form.Item
-            label="Upload Invoice Document (optional)"
-            extra="If you already have the finished invoice as a file, attach it here."
-          >
-            <Dragger
-              multiple={false}
-              maxCount={1}
-              beforeUpload={handleUploadFile}
-              onRemove={() => setInvoiceFile(null)}
-              fileList={invoiceFile ? [{ uid: '-inv-1', name: invoiceFile.name, status: 'done' }] : []}
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-            >
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <p className="ant-upload-text">Click or drag the invoice file here</p>
-              <p className="ant-upload-hint">PDF, Word or image files up to 10MB</p>
-            </Dragger>
-          </Form.Item>
-
           <Row gutter={16} style={{ marginTop: '24px' }}>
             <Col span={12}>
               {/* Left side empty for layout */}
@@ -1831,6 +1927,136 @@ const FinanceInvoicePreparation = () => {
         </Form>
       </Modal>
 
+      {/* Invoice PDF preview */}
+      <Modal
+        title={previewInvoice ? `Invoice ${previewInvoice.invoiceNumber}` : 'Invoice preview'}
+        visible={previewVisible}
+        onCancel={closePreview}
+        width="min(1000px, 96vw)"
+        style={{ top: 16 }}
+        footer={[
+          <Button key="details" onClick={() => { setSelectedInvoice(previewInvoice); setDetailDrawerVisible(true); }}>
+            Details
+          </Button>,
+          <Button
+            key="download"
+            icon={<DownloadOutlined />}
+            onClick={() => previewInvoice && handleDownloadInvoicePdf(previewInvoice._id, previewInvoice.invoiceNumber)}
+          >
+            Download
+          </Button>,
+          <Button key="close" type="primary" onClick={closePreview}>Close</Button>
+        ]}
+      >
+        <Spin spinning={previewLoading}>
+          {previewUrl ? (
+            <iframe
+              title="Invoice preview"
+              src={previewUrl}
+              style={{ width: '100%', height: '75vh', border: '1px solid #f0f0f0' }}
+            />
+          ) : (
+            <div style={{ height: '75vh' }} />
+          )}
+        </Spin>
+      </Modal>
+
+      {/* Edit draft invoice */}
+      <Modal
+        title={editingInvoice ? `Edit invoice ${editingInvoice.invoiceNumber}` : 'Edit invoice'}
+        visible={editModalVisible}
+        onCancel={() => { setEditModalVisible(false); setEditingInvoice(null); }}
+        width={800}
+        footer={null}
+        maskClosable={false}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Only draft invoices can be edited. Once submitted for approval, the invoice is locked."
+        />
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={handleSaveEditInvoice}
+          onValuesChange={(changed, all) => { if (changed.items) setEditTotals(calcEditTotals(all.items)); }}
+        >
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="invoiceDate" label="Invoice Date" rules={[{ required: true, message: 'Select invoice date' }]}>
+                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="paymentTerms" label="Payment Terms" rules={[{ required: true, message: 'Enter payment terms' }]}>
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="dueDate" label="Due Date" rules={[{ required: true, message: 'Select due date' }]}>
+                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="description" label="Description / Notes">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+
+          <Divider orientation="left">Items</Divider>
+          <Form.List name="items">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map(field => (
+                  <Row gutter={8} key={field.key} align="middle" style={{ marginBottom: 8 }}>
+                    <Col span={9}>
+                      <Form.Item name={[field.name, 'description']} rules={[{ required: true, message: 'Enter product/service' }]} style={{ marginBottom: 0 }}>
+                        <Input placeholder="Product or Service" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={3}>
+                      <Form.Item name={[field.name, 'quantity']} rules={[{ required: true, message: 'Qty' }]} style={{ marginBottom: 0 }}>
+                        <InputNumber min={0} placeholder="Qty" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={5}>
+                      <Form.Item name={[field.name, 'unitPrice']} rules={[{ required: true, message: 'Price' }]} style={{ marginBottom: 0 }}>
+                        <InputNumber min={0} placeholder="Unit price" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={4}>
+                      <Form.Item name={[field.name, 'taxRate']} style={{ marginBottom: 0 }}>
+                        <InputNumber min={0} max={100} placeholder="VAT %" style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={3}>
+                      <Button danger icon={<DeleteOutlined />} disabled={fields.length === 1} onClick={() => remove(field.name)} />
+                    </Col>
+                  </Row>
+                ))}
+                <Button type="dashed" onClick={() => add({ description: '', quantity: 1, unitPrice: 0, taxRate: 19.25 })} block>
+                  + Add item
+                </Button>
+              </>
+            )}
+          </Form.List>
+
+          <div style={{ textAlign: 'right', marginTop: 16 }}>
+            <div>Amount (excl. VAT): <Text strong>XAF {Math.round(editTotals.subtotal).toLocaleString()}</Text></div>
+            <div>VAT: <Text strong>XAF {Math.round(editTotals.tax).toLocaleString()}</Text></div>
+            <div>Total (incl. VAT): <Text strong style={{ color: '#1890ff' }}>XAF {Math.round(editTotals.subtotal + editTotals.tax).toLocaleString()}</Text></div>
+          </div>
+
+          <Form.Item style={{ marginTop: 16, marginBottom: 0 }}>
+            <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+              <Button onClick={() => { setEditModalVisible(false); setEditingInvoice(null); }}>Cancel</Button>
+              <Button type="primary" htmlType="submit" loading={editSaving}>Save changes</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {/* Detail Drawer */}
       <Drawer
         title={selectedPO ? `PO: ${selectedPO.poNumber}` : `Invoice: ${selectedInvoice?.invoiceNumber}`}
@@ -1878,6 +2104,9 @@ const FinanceInvoicePreparation = () => {
               <Descriptions.Item label="Invoice Number" span={2}>
                 <Tag color="cyan">{selectedInvoice.invoiceNumber}</Tag>
               </Descriptions.Item>
+              <Descriptions.Item label="Customer / Supplier" span={2}>
+                {selectedInvoice.customerDetails?.name || selectedInvoice.supplierDetails?.name || selectedInvoice.supplier?.name || 'N/A'}
+              </Descriptions.Item>
               <Descriptions.Item label="PO Reference">
                 {selectedInvoice.poNumber ? (
                   <Tag color="blue">{selectedInvoice.poNumber}</Tag>
@@ -1909,16 +2138,16 @@ const FinanceInvoicePreparation = () => {
               <Descriptions.Item label="Payment Terms">
                 {selectedInvoice.paymentTerms || 'N/A'}
               </Descriptions.Item>
-              <Descriptions.Item label="Total Amount">
+              <Descriptions.Item label="Amount (excl. VAT)">
+                XAF {selectedInvoice.totalAmount?.toLocaleString()}
+              </Descriptions.Item>
+              <Descriptions.Item label="VAT">
+                XAF {(selectedInvoice.taxAmount || 0).toLocaleString()}
+              </Descriptions.Item>
+              <Descriptions.Item label="Total (incl. VAT)">
                 <Text strong style={{ color: '#1890ff' }}>
-                  XAF {selectedInvoice.totalAmount?.toLocaleString()}
+                  XAF {((selectedInvoice.totalAmount || 0) + (selectedInvoice.taxAmount || 0)).toLocaleString()}
                 </Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="Tax Amount">
-                XAF {selectedInvoice.taxAmount?.toLocaleString()}
-              </Descriptions.Item>
-              <Descriptions.Item label="Net Amount">
-                XAF {selectedInvoice.netAmount?.toLocaleString()}
               </Descriptions.Item>
               <Descriptions.Item label="Notes" span={2}>
                 {selectedInvoice.description || 'N/A'}
@@ -1929,7 +2158,7 @@ const FinanceInvoicePreparation = () => {
                     type="link"
                     icon={<FilePdfOutlined />}
                     style={{ padding: 0 }}
-                    onClick={() => handleViewInvoiceFile('po', selectedInvoice.poFile.publicId)}
+                    onClick={() => handleViewClientPO(selectedInvoice)}
                   >
                     {selectedInvoice.poFile.originalName || 'View file'}
                   </Button>
@@ -1937,8 +2166,10 @@ const FinanceInvoicePreparation = () => {
                   <Text type="secondary">No PO file attached</Text>
                 )}
               </Descriptions.Item>
-              <Descriptions.Item label="Invoice Document" span={2}>
-                {selectedInvoice.invoiceFile?.publicId ? (
+              {/* Only shown for older invoices that had a separate file uploaded
+                  before this was removed — new invoices are generated by the system. */}
+              {selectedInvoice.invoiceFile?.publicId && (
+                <Descriptions.Item label="Invoice Document" span={2}>
                   <Button
                     type="link"
                     icon={<FilePdfOutlined />}
@@ -1947,10 +2178,8 @@ const FinanceInvoicePreparation = () => {
                   >
                     {selectedInvoice.invoiceFile.originalName || 'View file'}
                   </Button>
-                ) : (
-                  <Text type="secondary">No invoice file attached</Text>
-                )}
-              </Descriptions.Item>
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             <Divider orientation="left" style={{ marginTop: '16px' }}>Invoice Items</Divider>

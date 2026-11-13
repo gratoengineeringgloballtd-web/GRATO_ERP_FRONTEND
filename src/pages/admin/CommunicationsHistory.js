@@ -38,6 +38,8 @@ const { Option } = Select;
 const CommunicationsHistory = () => {
   const navigate = useNavigate();
   const { user } = useSelector((state) => state.auth);
+  // IT and HR use their own /it or /hr communications routes; admin and CEO use /admin.
+  const commBase = ['it', 'hr'].includes(user?.role) ? `/${user.role}` : '/admin';
   
   const [loading, setLoading] = useState(false);
   const [communications, setCommunications] = useState([]);
@@ -129,7 +131,7 @@ const CommunicationsHistory = () => {
       const response = await api.get(`/communications/${id}`);
       const original = response.data.data;
       
-      navigate('/admin/communications/new', {
+      navigate(`${commBase}/communications/new`, {
         state: {
           template: {
             title: `Copy of ${original.title}`,
@@ -151,7 +153,7 @@ const CommunicationsHistory = () => {
       <Menu.Item
         key="view"
         icon={<EyeOutlined />}
-        onClick={() => navigate(`/admin/communications/${record._id}`)}
+        onClick={() => navigate(`${commBase}/communications/${record._id}`)}
       >
         View Details
       </Menu.Item>
@@ -161,7 +163,7 @@ const CommunicationsHistory = () => {
           <Menu.Item
             key="edit"
             icon={<EditOutlined />}
-            onClick={() => navigate(`/admin/communications/${record._id}/edit`)}
+            onClick={() => navigate(`${commBase}/communications/${record._id}/edit`)}
           >
             Edit
           </Menu.Item>
@@ -170,7 +172,7 @@ const CommunicationsHistory = () => {
             <Menu.Item
               key="send"
               icon={<SendOutlined />}
-              onClick={() => navigate(`/admin/communications/${record._id}/send`)}
+              onClick={() => navigate(`${commBase}/communications/${record._id}/send`)}
             >
               Send Now
             </Menu.Item>
@@ -211,7 +213,7 @@ const CommunicationsHistory = () => {
           <Button 
             type="link" 
             style={{ padding: 0, height: 'auto', fontWeight: 'bold' }}
-            onClick={() => navigate(`/admin/communications/${record._id}`)}
+            onClick={() => navigate(`${commBase}/communications/${record._id}`)}
           >
             {title}
           </Button>

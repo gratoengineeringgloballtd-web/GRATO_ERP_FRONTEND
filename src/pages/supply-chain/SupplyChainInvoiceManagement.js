@@ -4,6 +4,7 @@ import {
   Table,
   Button,
   Modal,
+  InputNumber,
   Select,
   Typography,
   Tag,
@@ -73,14 +74,27 @@ const SupplyChainInvoiceManagement = () => {
   });
 
   // Tab / tracking state
-  const [activeTab, setActiveTab] = useState('pending_supply_chain_assignment');
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const s = new URLSearchParams(window.location.search).get('status');
+      return { pending: 'pending_supply_chain_assignment', in_approval: 'in_approval', approved: 'approved',
+               rejected: 'rejected', paid: 'paid', all: 'all' }[s] || 'pending_supply_chain_assignment';
+    } catch (e) { return 'pending_supply_chain_assignment'; }
+  });
   const [allInvoices, setAllInvoices] = useState([]);
   const [allInvoicesLoading, setAllInvoicesLoading] = useState(false);
+  const [trackingCounts, setTrackingCounts] = useState({});
+  const [trackingPage, setTrackingPage] = useState({ current: 1, pageSize: 10, total: 0 });
+  const [trackingSearch, setTrackingSearch] = useState('');
 
   // Assignment workflow states
   const [assignDepartment, setAssignDepartment] = useState('');
   const [assignComments, setAssignComments] = useState('');
   const [signedDocumentFile, setSignedDocumentFile] = useState(null);
+  const [assignAmount, setAssignAmount] = useState(null);
+  const [assignCurrency, setAssignCurrency] = useState('XAF');
+  const [detectingAmount, setDetectingAmount] = useState(false);
+  const [amountInfo, setAmountInfo] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
   const [documentDownloaded, setDocumentDownloaded] = useState(false);
@@ -110,21 +124,26 @@ const SupplyChainInvoiceManagement = () => {
     }
   }, [filters]);
 
-  // Fetch every supplier invoice regardless of status, for the tracking tabs
-  const fetchAllInvoicesForTracking = useCallback(async () => {
+  // Tracking tabs: server-side stage filter, search and paging, plus counts for every tab
+  const fetchAllInvoicesForTracking = useCallback(async (page = 1, pageSize = 10) => {
     try {
       setAllInvoicesLoading(true);
-      const response = await api.get('/suppliers/admin/invoices');
+      const params = new URLSearchParams({ stage: activeTab, page, limit: pageSize });
+      if (trackingSearch.trim()) params.append('search', trackingSearch.trim());
+      const response = await api.get(`/suppliers/supply-chain/invoices/tracking?${params}`);
       if (response.data.success) {
         setAllInvoices(response.data.data || []);
+        setTrackingCounts(response.data.counts || {});
+        const p = response.data.pagination || {};
+        setTrackingPage({ current: p.current || page, pageSize: p.pageSize || pageSize, total: p.total || 0 });
       }
     } catch (error) {
-      console.error('Error fetching invoice history:', error);
-      message.error('Failed to fetch invoice history');
+      console.error('Error fetching invoice tracking:', error);
+      message.error('Failed to fetch invoice tracking');
     } finally {
       setAllInvoicesLoading(false);
     }
-  }, []);
+  }, [activeTab, trackingSearch]);
 
   const handleFileDownload = useCallback(async (fileMetadata, label = 'file') => {
     if (!fileMetadata?.publicId && !fileMetadata?.url) {
@@ -180,9 +199,10 @@ const SupplyChainInvoiceManagement = () => {
     if (activeTab === 'pending_supply_chain_assignment') {
       fetchPendingInvoices();
     } else {
-      fetchAllInvoicesForTracking();
+      fetchAllInvoicesForTracking(1, trackingPage.pageSize);
     }
     fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, fetchPendingInvoices, fetchAllInvoicesForTracking, fetchStats]);
 
   
@@ -266,6 +286,41 @@ const SupplyChainInvoiceManagement = () => {
     setCurrentStep(2);
   };
 
+  // Read the amount from the invoice document (PDF text / image OCR); the user confirms it
+  const detectAmount = useCallback(async (invoice) => {
+    if (!invoice?._id) return;
+    setDetectingAmount(true);
+    setAmountInfo(null);
+    try {
+      const res = await api.post(`/suppliers/supply-chain/invoices/${invoice._id}/detect-amount`);
+      const d = res.data?.data;
+      if (d?.amount) {
+        setAssignAmount(d.amount);
+        if (d.currency) setAssignCurrency(d.currency);
+        setAmountInfo({ type: d.confidence === 'low' ? 'warning' : 'success', d });
+      } else {
+        setAmountInfo({ type: 'warning', d: d || {} });
+      }
+    } catch (e) {
+      setAmountInfo({ type: 'error', message: e.response?.data?.message || 'Could not read the document' });
+    } finally {
+      setDetectingAmount(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (assignModalVisible && selectedInvoice) {
+      setAssignCurrency(selectedInvoice.currency || 'XAF');
+      if (selectedInvoice.invoiceAmount > 0) {
+        setAssignAmount(selectedInvoice.invoiceAmount);
+        setAmountInfo(null);
+      } else {
+        setAssignAmount(null);
+        detectAmount(selectedInvoice);
+      }
+    }
+  }, [assignModalVisible, selectedInvoice, detectAmount]);
+
   // Handle assignment with signed document
   const handleAssign = async () => {
     if (!assignDepartment) {
@@ -287,6 +342,10 @@ const SupplyChainInvoiceManagement = () => {
         formData.append('comments', assignComments);
       }
       formData.append('signedDocument', signedDocumentFile);
+      if (assignAmount > 0) {
+        formData.append('invoiceAmount', String(assignAmount));
+        formData.append('currency', assignCurrency);
+      }
       
       const response = await api.post(
         `/suppliers/supply-chain/invoices/${selectedInvoice._id}/assign`,
@@ -327,6 +386,8 @@ const SupplyChainInvoiceManagement = () => {
     setAssignDepartment('');
     setAssignComments('');
     setSignedDocumentFile(null);
+    setAssignAmount(null);
+    setAmountInfo(null);
     setDocumentDownloaded(false);
     setCurrentStep(0);
   };
@@ -381,12 +442,7 @@ const SupplyChainInvoiceManagement = () => {
     return Math.round((approved / invoice.approvalChain.length) * 100);
   };
 
-  const getTrackingTabCount = (status) => {
-    if (status === 'all') return allInvoices.length;
-    return allInvoices.filter(inv =>
-      inv.approvalStatus === status || (status === 'paid' && inv.paymentStatus === 'paid')
-    ).length;
-  };
+  const getTrackingTabCount = (stage) => trackingCounts[stage] || 0;
 
   const columns = [
     {
@@ -610,6 +666,37 @@ const SupplyChainInvoiceManagement = () => {
       width: 200
     },
     {
+      title: 'Waiting On',
+      key: 'waitingOn',
+      width: 210,
+      render: (_, record) => {
+        const t = record.tracking || {};
+        if (!t.currentApprover) return <Text type="secondary">-</Text>;
+        return (
+          <div>
+            <Text strong>{t.currentApprover.name}</Text>
+            <br />
+            <Text type="secondary" style={{ fontSize: '12px' }}>
+              {t.currentApprover.role} (step {t.currentApprover.level}/{t.stepsTotal})
+            </Text>
+          </div>
+        );
+      }
+    },
+    {
+      title: 'Waiting',
+      key: 'waiting',
+      width: 110,
+      render: (_, record) => {
+        const t = record.tracking || {};
+        if (t.daysWaiting === null || t.daysWaiting === undefined) return <Text type="secondary">-</Text>;
+        const label = t.daysWaiting === 0 ? 'Today' : `${t.daysWaiting} day${t.daysWaiting === 1 ? '' : 's'}`;
+        return t.overdue
+          ? <Tag color="red" icon={<WarningOutlined />}>{label}</Tag>
+          : <Tag color="blue">{label}</Tag>;
+      }
+    },
+    {
       title: 'Progress',
       key: 'progress',
       render: (_, record) => {
@@ -654,7 +741,7 @@ const SupplyChainInvoiceManagement = () => {
                   if (activeTab === 'pending_supply_chain_assignment') {
                     fetchPendingInvoices();
                   } else {
-                    fetchAllInvoicesForTracking();
+                    fetchAllInvoicesForTracking(trackingPage.current, trackingPage.pageSize);
                   }
                   fetchStats();
               }}
@@ -674,42 +761,18 @@ const SupplyChainInvoiceManagement = () => {
             }
             key="pending_supply_chain_assignment"
           />
-          {/* <TabPane
-            tab={
-              <Badge count={getTrackingTabCount('pending_department_head_approval')} size="small" style={{ backgroundColor: '#faad14' }}>
-                <span><UserOutlined /> Dept. Head ({getTrackingTabCount('pending_department_head_approval')})</span>
-              </Badge>
-            }
-            key="pending_department_head_approval"
-          />
           <TabPane
             tab={
-              <Badge count={getTrackingTabCount('pending_head_of_business_approval')} size="small" style={{ backgroundColor: '#fa8c16' }}>
-                <span><CrownOutlined /> Head of Business ({getTrackingTabCount('pending_head_of_business_approval')})</span>
+              <Badge count={getTrackingTabCount('in_approval')} size="small" style={{ backgroundColor: '#fa8c16' }}>
+                <span><UserOutlined /> In Approval ({getTrackingTabCount('in_approval')})</span>
               </Badge>
             }
-            key="pending_head_of_business_approval"
-          />
-          <TabPane
-            tab={
-              <Badge count={getTrackingTabCount('pending_finance_approval')} size="small" style={{ backgroundColor: '#722ed1' }}>
-                <span>Finance ({getTrackingTabCount('pending_finance_approval')})</span>
-              </Badge>
-            }
-            key="pending_finance_approval"
-          />
-          <TabPane
-            tab={
-              <Badge count={getTrackingTabCount('pending_ceo_approval')} size="small" style={{ backgroundColor: '#fa8c16' }}>
-                <span>CEO ({getTrackingTabCount('pending_ceo_approval')})</span>
-              </Badge>
-            }
-            key="pending_ceo_approval"
+            key="in_approval"
           />
           <TabPane
             tab={
               <Badge count={getTrackingTabCount('approved')} size="small" style={{ backgroundColor: '#52c41a' }}>
-                <span>Approved ({getTrackingTabCount('approved')})</span>
+                <span><CheckCircleOutlined /> Approved ({getTrackingTabCount('approved')})</span>
               </Badge>
             }
             key="approved"
@@ -717,7 +780,7 @@ const SupplyChainInvoiceManagement = () => {
           <TabPane
             tab={
               <Badge count={getTrackingTabCount('rejected')} size="small" style={{ backgroundColor: '#ff4d4f' }}>
-                <span>Rejected ({getTrackingTabCount('rejected')})</span>
+                <span><CloseCircleOutlined /> Rejected ({getTrackingTabCount('rejected')})</span>
               </Badge>
             }
             key="rejected"
@@ -729,7 +792,7 @@ const SupplyChainInvoiceManagement = () => {
               </Badge>
             }
             key="paid"
-          /> */}
+          />
           <TabPane
             tab={
               <Badge count={getTrackingTabCount('all')} size="small" style={{ backgroundColor: '#8c8c8c' }}>
@@ -739,6 +802,15 @@ const SupplyChainInvoiceManagement = () => {
             key="all"
           />
         </Tabs>
+
+        {activeTab !== 'pending_supply_chain_assignment' && (
+          <Input.Search
+            allowClear
+            placeholder="Search invoice no., PO no., supplier or department"
+            style={{ maxWidth: 420, marginBottom: 12 }}
+            onSearch={(v) => setTrackingSearch(v)}
+          />
+        )}
 
         {activeTab === 'pending_supply_chain_assignment' && (
           <>
@@ -856,23 +928,22 @@ const SupplyChainInvoiceManagement = () => {
 
         <Table
           columns={activeTab === 'pending_supply_chain_assignment' ? columns : trackingColumns}
-          dataSource={
-            activeTab === 'pending_supply_chain_assignment'
-              ? invoices
-              : activeTab === 'all'
-                ? allInvoices
-                : allInvoices.filter(inv =>
-                    inv.approvalStatus === activeTab || (activeTab === 'paid' && inv.paymentStatus === 'paid')
-                  )
-          }
+          dataSource={activeTab === 'pending_supply_chain_assignment' ? invoices : allInvoices}
           loading={activeTab === 'pending_supply_chain_assignment' ? loading : allInvoicesLoading}
           rowKey="_id"
-          scroll={{ x: 1300 }}
+          scroll={{ x: 1500 }}
           size="small"
-          pagination={{
+          pagination={activeTab === 'pending_supply_chain_assignment' ? {
             showSizeChanger: true,
             showQuickJumper: true,
             showTotal: (total) => `Total ${total} invoices`
+          } : {
+            current: trackingPage.current,
+            pageSize: trackingPage.pageSize,
+            total: trackingPage.total,
+            showSizeChanger: true,
+            showTotal: (total) => `Total ${total} invoices`,
+            onChange: (page, size) => fetchAllInvoicesForTracking(page, size)
           }}
         />
       </Card>
@@ -902,10 +973,57 @@ const SupplyChainInvoiceManagement = () => {
                 <Descriptions.Item label="Invoice">{selectedInvoice.invoiceNumber}</Descriptions.Item>
                 <Descriptions.Item label="PO">{selectedInvoice.poNumber}</Descriptions.Item>
                 <Descriptions.Item label="Supplier">{selectedInvoice.supplierDetails?.companyName}</Descriptions.Item>
-                <Descriptions.Item label="Amount">
-                  {selectedInvoice.currency} {selectedInvoice.invoiceAmount.toLocaleString()}
-                </Descriptions.Item>
               </Descriptions>
+            </Card>
+
+            {/* Invoice amount - read from the document, confirmed by you */}
+            <Card size="small" title="Invoice amount" style={{ marginBottom: 16 }}
+              extra={
+                <Button size="small" loading={detectingAmount} onClick={() => detectAmount(selectedInvoice)}>
+                  Detect from document
+                </Button>
+              }
+            >
+              <Space wrap>
+                <Select value={assignCurrency} onChange={setAssignCurrency} style={{ width: 90 }}>
+                  {['XAF', 'USD', 'EUR', 'GBP'].map(c => <Option key={c} value={c}>{c}</Option>)}
+                </Select>
+                <InputNumber
+                  value={assignAmount}
+                  onChange={setAssignAmount}
+                  min={0}
+                  style={{ width: 220 }}
+                  placeholder="Enter or detect the amount"
+                  formatter={v => (v === undefined || v === null || v === '' ? '' : `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ','))}
+                  parser={v => (v ? v.replace(/,/g, '') : '')}
+                />
+              </Space>
+              {detectingAmount && <div style={{ marginTop: 8 }}><Text type="secondary">Reading the document…</Text></div>}
+              {!detectingAmount && amountInfo?.type === 'success' && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="success">Read from the document ({amountInfo.d.confidence} confidence). Please check it against the invoice.</Text>
+                  {amountInfo.d.candidates?.length > 1 && (
+                    <div style={{ marginTop: 4 }}>
+                      <Text type="secondary">Other figures found: </Text>
+                      {amountInfo.d.candidates.slice(1).map(c => (
+                        <Tag key={c.amount} style={{ cursor: 'pointer' }} onClick={() => setAssignAmount(c.amount)}>
+                          {c.amount.toLocaleString()}
+                        </Tag>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {!detectingAmount && amountInfo?.type === 'warning' && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="warning">
+                    {amountInfo.d?.note || 'Low confidence - please verify, or type the amount from the invoice.'}
+                  </Text>
+                </div>
+              )}
+              {!detectingAmount && amountInfo?.type === 'error' && (
+                <div style={{ marginTop: 8 }}><Text type="danger">{amountInfo.message}</Text></div>
+              )}
             </Card>
 
             {/* Workflow Steps */}

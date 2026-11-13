@@ -200,15 +200,15 @@ const BudgetCodeDetails = () => {
     try {
       setLoading(true);
       const newStatus = !budgetCode.active;
-      const response = await api.put(`/budget-codes/${codeId}`, {
-        active: newStatus
+      const response = await api.patch(`/budget-codes/${codeId}/enabled`, {
+        enabled: newStatus
       });
       if (response.data.success) {
-        message.success(`Budget code ${newStatus ? 'activated' : 'deactivated'} successfully`);
+        message.success(`Budget code ${newStatus ? 'enabled' : 'disabled'} successfully`);
         fetchBudgetCodeDetails();
       }
     } catch (error) {
-      message.error('Failed to update status');
+      message.error(error.response?.data?.message || 'Failed to update status');
     } finally {
       setLoading(false);
     }
@@ -526,7 +526,7 @@ const BudgetCodeDetails = () => {
               onClick={handleToggleStatus}
               loading={loading}
             >
-              {budgetCode.active ? 'Deactivate' : 'Activate'}
+              {budgetCode.active ? 'Disable' : 'Enable'}
             </Button>
             <Button
               icon={<DeleteOutlined />}

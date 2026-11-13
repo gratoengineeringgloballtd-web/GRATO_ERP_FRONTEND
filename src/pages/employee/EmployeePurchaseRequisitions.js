@@ -127,7 +127,7 @@ const EmployeePurchaseRequisitions = ({ onCreateNew }) => {
       onCreateNew();
     } else {
       // Otherwise, navigate directly to the create page
-      navigate('/purchase-requisitions/new');
+      navigate('/employee/purchase-requisitions/new');
     }
   };
 

@@ -44,6 +44,8 @@ const NewCommunication = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useSelector((state) => state.auth);
+  // IT and HR use their own /it or /hr communications routes; admin and CEO use /admin.
+  const commBase = ['it', 'hr'].includes(user?.role) ? `/${user.role}` : '/admin';
   
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -169,7 +171,7 @@ const NewCommunication = () => {
         message.success('Draft saved successfully!');
       }
 
-      navigate('/admin/communications');
+      navigate(`${commBase}/communications`);
     } catch (error) {
       console.error('Error creating communication:', error);
       message.error(error.response?.data?.message || 'Failed to create communication');

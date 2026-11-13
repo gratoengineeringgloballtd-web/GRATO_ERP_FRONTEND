@@ -207,6 +207,7 @@ import ITDashboard from './pages/it/ITDashboard';
 import ITAssetManagement from './pages/it/ITAssetManagement';
 import ITSystemMonitoring from './pages/it/ITSystemMonitoring';
 import ITUserAccountManagement from './pages/it/ITUserAccountManagement';
+import ITOrgStructure from './pages/it/ITOrgStructure';
 import ITRequestDetails from './pages/it/ITRequestDetails';
 
 // ── HSE ───────────────────────────────────────────────────────────────────────
@@ -221,6 +222,13 @@ import AdminITSupport from './pages/admin/AdminITSupport';
 import AdminSuggestions from './pages/admin/AdminSuggestions';
 import AdminSickLeave from './pages/admin/AdminSickLeave';
 import AdminAnalyticsDashboard from './pages/admin/AdminAnalyticsDashboard';
+import AuditTrail from './pages/admin/AuditTrail';
+import SalesCRM from './pages/sales/SalesCRM';
+import Payroll from './pages/payroll/Payroll';
+import Expenses from './pages/expenses/Expenses';
+import Recruitment from './pages/recruitment/Recruitment';
+import DocumentHub from './pages/documents/DocumentHub';
+import DataExport from './pages/admin/DataExport';
 import AdminSystemSettings from './pages/admin/AdminSystemSettings';
 import AdminSupplierManagement from './pages/admin/AdminSupplierManagement';
 import AdminUserManagement from './pages/admin/AdminUserManagement';
@@ -246,6 +254,7 @@ import CommunicationsHistory from './pages/admin/CommunicationsHistory';
 import CommunicationAnalytics from './pages/admin/CommunicationAnalytics';
 import CommunicationTemplates from './pages/admin/CommunicationTemplates';
 import CommunicationDetail from './pages/admin/CommunicationDetail';
+import MyCommunications from './pages/employee/MyCommunications';
 
 // ── Communications ────────────────────────────────────────────────────────────
 // import CommunicationDetail from './pages/CEO/CEOAvailabilitySettings';
@@ -312,7 +321,8 @@ const EnhancedProtectedRoute = ({ children, allowedRoles, fallbackRole = null })
     }
 
     // Rule 4 — Normal direct role check
-    const hasDirectAccess = allowedRoles.includes(userRole);
+    // 'sales' staff are ordinary employees for every employee-level route.
+    const hasDirectAccess = allowedRoles.includes(userRole) || (userRole === 'sales' && allowedRoles.includes('employee'));
     if (!hasDirectAccess) {
       return <Navigate to="/dashboard" replace />;
     }
@@ -932,7 +942,11 @@ const AppRoutes = () => {
           <Route path="inventory"                          element={<ITInventoryManagement />} />
           <Route path="system-monitoring"                  element={<ITSystemMonitoring />} />
           <Route path="user-accounts"                      element={<ITUserAccountManagement />} />
+          <Route path="org-structure"                      element={<ITOrgStructure />} />
           <Route path="it-support/:requestId"              element={<ITRequestDetails />} />
+
+          {/* Communications */}
+          {communicationsRoutes('it')}
         </Route>
 
         {/* ── HSE ─────────────────────────────────────────────────────────── */}
@@ -1190,12 +1204,74 @@ const AppRoutes = () => {
           <Route index element={<AdminAnalyticsDashboard />} />
         </Route>
 
+        <Route path="/sales" element={
+          <EnhancedProtectedRoute allowedRoles={['sales','admin','ceo','finance']}>
+            <PettyCashLayout />
+          </EnhancedProtectedRoute>
+        }>
+          <Route index element={<SalesCRM />} />
+        </Route>
+
+        <Route path="/payroll" element={
+          <EnhancedProtectedRoute allowedRoles={['employee','sales','finance','admin','buyer','hr','supply_chain','technical','hse','it','project','ceo']}>
+            <PettyCashLayout />
+          </EnhancedProtectedRoute>
+        }>
+          <Route index element={<Payroll />} />
+        </Route>
+
+        <Route path="/expenses" element={
+          <EnhancedProtectedRoute allowedRoles={['employee','sales','finance','admin','buyer','hr','supply_chain','technical','hse','it','project','ceo']}>
+            <PettyCashLayout />
+          </EnhancedProtectedRoute>
+        }>
+          <Route index element={<Expenses />} />
+        </Route>
+
+        <Route path="/recruitment" element={
+          <EnhancedProtectedRoute allowedRoles={['employee','sales','finance','admin','buyer','hr','supply_chain','technical','hse','it','project','ceo']}>
+            <PettyCashLayout />
+          </EnhancedProtectedRoute>
+        }>
+          <Route index element={<Recruitment />} />
+        </Route>
+
+        <Route path="/documents" element={
+          <EnhancedProtectedRoute allowedRoles={['employee','sales','finance','admin','buyer','hr','supply_chain','technical','hse','it','project','ceo']}>
+            <PettyCashLayout />
+          </EnhancedProtectedRoute>
+        }>
+          <Route index element={<DocumentHub />} />
+        </Route>
+
+        <Route path="/audit-trail" element={
+          <EnhancedProtectedRoute allowedRoles={['it','admin','ceo','finance','hr','supply_chain']}>
+            <PettyCashLayout />
+          </EnhancedProtectedRoute>
+        }>
+          <Route index element={<AuditTrail />} />
+        </Route>
+
+        <Route path="/data-export" element={
+          <EnhancedProtectedRoute allowedRoles={['it','admin','ceo','finance','hr','supply_chain']}>
+            <PettyCashLayout />
+          </EnhancedProtectedRoute>
+        }>
+          <Route index element={<DataExport />} />
+        </Route>
+
         <Route path="/employee-welfare" element={
           <EnhancedProtectedRoute allowedRoles={['hr','admin']}>
             <PettyCashLayout />
           </EnhancedProtectedRoute>
         }>
           <Route index element={<HREmployeeWelfare />} />
+        </Route>
+
+        <Route path="/my-communications" element={
+          <ProtectedRoute><PettyCashLayout /></ProtectedRoute>
+        }>
+          <Route index element={<MyCommunications />} />
         </Route>
 
         <Route path="/communications/:id/view" element={

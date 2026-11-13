@@ -9,6 +9,11 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`;
   }
+  // "Acting as" mode: a delegate working as the person who delegated to them
+  try {
+    const actingAs = localStorage.getItem('actingAsEmail');
+    if (actingAs && token) config.headers['X-Acting-As'] = actingAs;
+  } catch (e) { /* ignore */ }
   return config;
 }, (error) => {
   return Promise.reject(error);
@@ -17,7 +22,24 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use((response) => {
   return response;
 }, (error) => {
+  if (error.response?.data?.code === 'ACTING_AS_INVALID') {
+    // Delegation ended or was withdrawn: drop back to the user's own identity
+    try {
+      const real = localStorage.getItem('realUser');
+      if (real) localStorage.setItem('user', real);
+      localStorage.removeItem('realUser');
+      localStorage.removeItem('actingAsEmail');
+      localStorage.removeItem('actingAsName');
+    } catch (e) { /* ignore */ }
+    window.location = '/dashboard';
+    return Promise.reject(error);
+  }
   if (error.response?.status === 401) {
+    try {
+      localStorage.removeItem('realUser');
+      localStorage.removeItem('actingAsEmail');
+      localStorage.removeItem('actingAsName');
+    } catch (e) { /* ignore */ }
     if (!window.location.pathname.includes('/login')) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');

@@ -25,7 +25,8 @@ import {
   notification,
   Upload,
   Steps,
-  Divider
+  Divider,
+  Collapse
 } from 'antd';
 import {
   FileTextOutlined,
@@ -46,6 +47,7 @@ import {
   SendOutlined
 } from '@ant-design/icons';
 import api from '../../services/api';
+import InlineSignaturePlacer from '../../components/signing/InlineSignaturePlacer';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -64,10 +66,11 @@ const SupervisorInvoiceApprovals = () => {
   const [invoices, setInvoices] = useState([]);
   const [supplierInvoices, setSupplierInvoices] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+  const [reviewCanApprove, setReviewCanApprove] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [approvalModalVisible, setApprovalModalVisible] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [activeTab, setActiveTab] = useState('employee-pending');
+  const [activeTab, setActiveTab] = useState('supplier-pending');
   const [stats, setStats] = useState({
     employee: { pending: 0, approved: 0, rejected: 0, total: 0 },
     supplier: { pending: 0, approved: 0, rejected: 0, total: 0 }
@@ -79,6 +82,9 @@ const SupervisorInvoiceApprovals = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
   const [documentDownloaded, setDocumentDownloaded] = useState(false);
+  // Optional signing: 'onscreen' (drag saved signature), 'upload' (signed elsewhere) or 'none'
+  const [signMode, setSignMode] = useState('onscreen');
+  const [signaturePlacement, setSignaturePlacement] = useState(null);
 
   // Helper function to check if user can approve invoice
   const canUserApprove = useCallback((invoice) => {
@@ -228,6 +234,7 @@ const SupervisorInvoiceApprovals = () => {
           let response = await api.get(`/invoices/${autoApprovalId}`).catch(() => null);
           if (response?.data.success) {
             setSelectedInvoice({...response.data.data, invoiceType: 'employee'});
+            setReviewCanApprove(true);
             setApprovalModalVisible(true);
             form.setFieldsValue({ decision: 'approved' });
             return;
@@ -236,6 +243,7 @@ const SupervisorInvoiceApprovals = () => {
           response = await api.get(`/suppliers/invoices/${autoApprovalId}`).catch(() => null);
           if (response?.data.success) {
             setSelectedInvoice({...response.data.data, invoiceType: 'supplier'});
+            setReviewCanApprove(true);
             setApprovalModalVisible(true);
             form.setFieldsValue({ decision: 'approved' });
           }
@@ -247,6 +255,7 @@ const SupervisorInvoiceApprovals = () => {
           let response = await api.get(`/invoices/${autoRejectId}`).catch(() => null);
           if (response?.data.success) {
             setSelectedInvoice({...response.data.data, invoiceType: 'employee'});
+            setReviewCanApprove(true);
             setApprovalModalVisible(true);
             form.setFieldsValue({ decision: 'rejected' });
             return;
@@ -255,6 +264,7 @@ const SupervisorInvoiceApprovals = () => {
           response = await api.get(`/suppliers/invoices/${autoRejectId}`).catch(() => null);
           if (response?.data.success) {
             setSelectedInvoice({...response.data.data, invoiceType: 'supplier'});
+            setReviewCanApprove(true);
             setApprovalModalVisible(true);
             form.setFieldsValue({ decision: 'rejected' });
           }
@@ -375,8 +385,8 @@ const handleDownloadInvoice = async () => {
       
       const isSupplierInvoice = selectedInvoice.invoiceType === 'supplier';
       
-      if (isSupplierInvoice && values.decision === 'approved' && !signedDocumentFile) {
-        message.error('Please download, sign, and upload the document before approving.');
+      if (isSupplierInvoice && values.decision === 'approved' && signMode === 'upload' && !signedDocumentFile) {
+        message.error('Choose the signed file to upload, or switch to signing on screen / approving without a signature.');
         setLoading(false);
         return;
       }
@@ -391,7 +401,13 @@ const handleDownloadInvoice = async () => {
         const formData = new FormData();
         formData.append('decision', values.decision);
         formData.append('comments', values.comments || '');
-        formData.append('signedDocument', signedDocumentFile);
+        if (signMode === 'onscreen' && signaturePlacement?.placements?.length) {
+          formData.append('signaturePlacements', JSON.stringify(signaturePlacement.placements));
+          formData.append('stampName', signaturePlacement.stampName ? 'true' : 'false');
+          formData.append('stampDate', signaturePlacement.stampDate ? 'true' : 'false');
+        } else if (signMode === 'upload' && signedDocumentFile) {
+          formData.append('signedDocument', signedDocumentFile);
+        }
         
         response = await api.put(endpoint, formData, {
           headers: {
@@ -431,6 +447,8 @@ const handleDownloadInvoice = async () => {
   };
 
   const resetSigningWorkflow = () => {
+    setSignMode('onscreen');
+    setSignaturePlacement(null);
     setSignedDocumentFile(null);
     setDocumentDownloaded(false);
     setCurrentStep(0);
@@ -474,727 +492,38 @@ const handleDownloadInvoice = async () => {
     }
   }, []);
 
-  const handleViewDetails = async (invoice) => {
+  const handleOpenReview = async (invoice) => {
+    const canApprove = canUserApprove(invoice);
+    setReviewCanApprove(canApprove);
+    setSelectedInvoice(invoice);
+    setApprovalModalVisible(true);
+    if (invoice.invoiceType === 'supplier') {
+      resetSigningWorkflow();
+    }
+    form.resetFields();
+    setReviewLoading(true);
     try {
-      const isSupplierInvoice = invoice.invoiceType === 'supplier';
-      const endpoint = isSupplierInvoice 
+      const endpoint = invoice.invoiceType === 'supplier'
         ? `/suppliers/invoices/${invoice._id}`
         : `/invoices/${invoice._id}`;
-      
       const response = await api.get(endpoint);
-      
       if (response.data.success) {
         setSelectedInvoice({
+          ...invoice,
           ...response.data.data,
           invoiceType: invoice.invoiceType
         });
-        setDetailsModalVisible(true);
       }
     } catch (error) {
       console.error('Error fetching invoice details:', error);
-      message.error('Failed to fetch invoice details');
+      message.error('Failed to load full invoice details');
+    } finally {
+      setReviewLoading(false);
     }
   };
 
-  const getStatusTag = (status, invoiceType) => {
-    const statusMap = {
-      'pending_supervisor_approval': { color: 'orange', text: 'Pending Your Approval', icon: <ClockCircleOutlined /> },
-      'pending_department_approval': { color: 'orange', text: 'Pending Approval', icon: <ClockCircleOutlined /> },
-      'pending_department_head_approval': { color: 'orange', text: 'Pending Your Approval', icon: <ClockCircleOutlined /> },
-      'pending_head_of_business_approval': { color: 'orange', text: 'Pending Your Approval', icon: <ClockCircleOutlined /> },
-      'pending_finance_approval': { color: 'blue', text: 'Pending Finance', icon: <ClockCircleOutlined /> },
-      'pending_finance_assignment': { color: 'blue', text: 'Pending Finance', icon: <ClockCircleOutlined /> },
-      'pending_ceo_approval': { color: 'purple', text: 'Pending CEO', icon: <ClockCircleOutlined /> },
-      'approved': { color: 'green', text: 'Approved', icon: <CheckCircleOutlined /> },
-      'rejected': { color: 'red', text: 'Rejected', icon: <CloseCircleOutlined /> },
-      'processed': { color: 'purple', text: 'Processed', icon: <CheckCircleOutlined /> },
-      'paid': { color: 'cyan', text: 'Paid', icon: <DollarOutlined /> }
-    };
-
-    const config = statusMap[status] || { color: 'default', text: status, icon: null };
-    return <Tag color={config.color} icon={config.icon}>{config.text}</Tag>;
-  };
-
-  const getFilteredInvoices = (type, status) => {
-    const source = type === 'employee' ? invoices : supplierInvoices;
-    
-    console.log(`\n=== Filtering ${type} invoices for ${status} ===`);
-    console.log(`Source length: ${source.length}`);
-    console.log(`User email: ${user?.email}`);
-    
-    const filtered = source.filter(invoice => {
-      const userCanApprove = canUserApprove(invoice);
-      
-      if (source.length > 0 && invoice === source[0]) {
-        console.log('First invoice details:', {
-          invoiceNumber: invoice.invoiceNumber,
-          status: invoice.approvalStatus,
-          currentLevel: invoice.currentApprovalLevel,
-          userCanApprove,
-          approvalChain: invoice.approvalChain?.map(s => ({
-            level: s.level,
-            email: s.approver?.email,
-            status: s.status
-          }))
-        });
-      }
-      
-      switch (status) {
-        case 'pending':
-          if (type === 'employee') {
-            return invoice.approvalStatus === 'pending_supervisor_approval';
-          } else {
-            // For supplier invoices: 
-            // 1. Status must include "pending"
-            // 2. Must NOT be supply chain or finance assignment stages
-            // 3. User must be the current approver
-            const isPending = invoice.approvalStatus && (
-              invoice.approvalStatus.includes('pending') &&
-              !invoice.approvalStatus.includes('supply_chain_assignment') &&
-              !invoice.approvalStatus.includes('finance_assignment')
-            );
-            
-            const result = isPending && userCanApprove;
-            
-            if (invoice === source[0]) {
-              console.log('First invoice filter result:', {
-                isPending,
-                userCanApprove,
-                finalResult: result
-              });
-            }
-            
-            return result;
-          }
-        case 'approved':
-          return ['approved', 'processed', 'paid'].includes(invoice.approvalStatus);
-        case 'rejected':
-          return invoice.approvalStatus === 'rejected';
-        default:
-          return true;
-      }
-    });
-    
-    console.log(`Filtered result length: ${filtered.length}`);
-    console.log('=== End filtering ===\n');
-    
-    return filtered;
-  };
-
-  const commonColumns = [
-    {
-      title: 'Type',
-      dataIndex: 'invoiceType',
-      key: 'type',
-      width: 80,
-      render: (type) => (
-        <Tag color={type === 'supplier' ? 'green' : 'blue'} icon={type === 'supplier' ? <ShopOutlined /> : <UserOutlined />}>
-          {type === 'supplier' ? 'Supplier' : 'Employee'}
-        </Tag>
-      )
-    },
-    {
-      title: 'PO Number',
-      dataIndex: 'poNumber',
-      key: 'poNumber',
-      render: (text) => <Text code>{text}</Text>,
-      width: 150
-    },
-    {
-      title: 'Invoice Number',
-      dataIndex: 'invoiceNumber',
-      key: 'invoiceNumber',
-      width: 140
-    },
-    {
-      title: 'Entity/Employee',
-      key: 'entity',
-      render: (_, record) => (
-        <div>
-          <Text strong>
-            {record.invoiceType === 'supplier' 
-              ? record.supplierDetails?.companyName 
-              : record.employeeDetails?.name || record.employee?.fullName || 'N/A'
-            }
-          </Text>
-          <br />
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            {record.invoiceType === 'supplier'
-              ? record.supplierDetails?.contactName
-              : record.employeeDetails?.position || 'N/A'
-            }
-          </Text>
-        </div>
-      ),
-      width: 200
-    },
-    {
-      title: 'Amount',
-      dataIndex: 'invoiceAmount',
-      key: 'amount',
-      render: (amount, record) => (
-        <div>
-          <Text strong>{record.currency || 'XAF'} {amount ? amount.toLocaleString() : '0'}</Text>
-          {record.poBalance && record.poBalance.invoicingStatus === 'partially_invoiced' && (
-            <div>
-              <Tag color="orange" style={{ marginTop: 4 }}>
-                Partial — {record.poBalance.remaining?.toLocaleString()} left on PO
-              </Tag>
-            </div>
-          )}
-        </div>
-      ),
-      width: 150
-    },
-    {
-      title: 'Status',
-      key: 'status',
-      render: (_, record) => (
-        <div>
-          {getStatusTag(record.approvalStatus, record.invoiceType)}
-          {canUserApprove(record) && (
-            <div style={{ marginTop: 4 }}>
-              <Tag color="gold" size="small">Your Turn</Tag>
-            </div>
-          )}
-        </div>
-      ),
-      width: 140
-    },
-    {
-      title: 'Upload Date',
-      key: 'uploadDate',
-      render: (_, record) => (
-        <div>
-          {record.uploadedDate 
-            ? new Date(record.uploadedDate).toLocaleDateString('en-GB')
-            : record.createdAt 
-            ? new Date(record.createdAt).toLocaleDateString('en-GB')
-            : 'N/A'
-          }
-        </div>
-      ),
-      width: 120
-    },
-    {
-      title: 'Actions',
-      key: 'actions',
-      render: (_, record) => (
-        <Space size="small">
-          <Button 
-            size="small" 
-            icon={<EyeOutlined />}
-            onClick={() => handleViewDetails(record)}
-          >
-            View
-          </Button>
-          
-          {canUserApprove(record) && (
-            <Button 
-              size="small" 
-              type="primary"
-              onClick={() => {
-                setSelectedInvoice(record);
-                setApprovalModalVisible(true);
-                if (record.invoiceType === 'supplier') {
-                  resetSigningWorkflow();
-                }
-              }}
-            >
-              Review
-            </Button>
-          )}
-        </Space>
-      ),
-      width: 140,
-      fixed: 'right'
-    }
-  ];
-
-  if (loading && !invoices.length && !supplierInvoices.length) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ padding: '24px' }}>
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <Title level={2} style={{ margin: 0 }}>
-            <AuditOutlined /> Invoice Approvals Dashboard
-          </Title>
-          <Space>
-            <Button 
-              icon={<ReloadOutlined />} 
-              onClick={fetchPendingApprovals}
-              loading={loading}
-            >
-              Refresh
-            </Button>
-          </Space>
-        </div>
-
-        {/* Stats Cards */}
-        <Row gutter={16} style={{ marginBottom: '24px' }}>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="Employee Pending"
-                value={stats.employee.pending}
-                prefix={<UserOutlined />}
-                valueStyle={{ color: '#faad14' }}
-              />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="Supplier Pending"
-                value={stats.supplier.pending}
-                prefix={<ShopOutlined />}
-                valueStyle={{ color: '#faad14' }}
-              />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="Total Approved"
-                value={stats.employee.approved + stats.supplier.approved}
-                prefix={<CheckCircleOutlined />}
-                valueStyle={{ color: '#52c41a' }}
-              />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="Total Rejected"
-                value={stats.employee.rejected + stats.supplier.rejected}
-                prefix={<CloseCircleOutlined />}
-                valueStyle={{ color: '#f5222d' }}
-              />
-            </Card>
-          </Col>
-        </Row>
-
-        {(stats.employee.pending > 0 || stats.supplier.pending > 0) && (
-          <Alert
-            message={`${stats.employee.pending + stats.supplier.pending} invoice(s) require your approval`}
-            description={
-              <Space direction="vertical">
-                {stats.employee.pending > 0 && <Text>• {stats.employee.pending} employee invoice(s)</Text>}
-                {stats.supplier.pending > 0 && <Text>• {stats.supplier.pending} supplier invoice(s) (require document signing)</Text>}
-              </Space>
-            }
-            type="warning"
-            showIcon
-            style={{ marginBottom: '16px' }}
-          />
-        )}
-
-        <Tabs activeKey={activeTab} onChange={setActiveTab}>
-          {/* Employee Invoices Tabs */}
-          <TabPane 
-            tab={`Employee Pending (${stats.employee.pending})`} 
-            key="employee-pending"
-          >
-            <Table
-              columns={commonColumns}
-              dataSource={getFilteredInvoices('employee', 'pending')}
-              loading={loading}
-              rowKey="key"
-              pagination={{ pageSize: 10 }}
-              scroll={{ x: 1200 }}
-              size="small"
-            />
-          </TabPane>
-          
-          <TabPane 
-            tab={`Employee Approved (${stats.employee.approved})`} 
-            key="employee-approved"
-          >
-            <Table
-              columns={commonColumns}
-              dataSource={getFilteredInvoices('employee', 'approved')}
-              loading={loading}
-              rowKey="key"
-              pagination={{ pageSize: 10 }}
-              scroll={{ x: 1200 }}
-              size="small"
-            />
-          </TabPane>
-          
-          <TabPane 
-            tab={`Employee Rejected (${stats.employee.rejected})`} 
-            key="employee-rejected"
-          >
-            <Table
-              columns={commonColumns}
-              dataSource={getFilteredInvoices('employee', 'rejected')}
-              loading={loading}
-              rowKey="key"
-              pagination={{ pageSize: 10 }}
-              scroll={{ x: 1200 }}
-              size="small"
-            />
-          </TabPane>
-
-          {/* Supplier Invoices Tabs */}
-          <TabPane 
-            tab={`Supplier Pending (${stats.supplier.pending})`} 
-            key="supplier-pending"
-          >
-            <Alert
-              message="Document Signing Required"
-              description="Supplier invoices require you to download, sign manually, and upload the signed document before approval."
-              type="info"
-              showIcon
-              icon={<FileTextOutlined />}
-              style={{ marginBottom: '16px' }}
-              closable
-            />
-            <Table
-              columns={commonColumns}
-              dataSource={getFilteredInvoices('supplier', 'pending')}
-              loading={loading}
-              rowKey="key"
-              pagination={{ pageSize: 10 }}
-              scroll={{ x: 1200 }}
-              size="small"
-            />
-          </TabPane>
-          
-          <TabPane 
-            tab={`Supplier Approved (${stats.supplier.approved})`} 
-            key="supplier-approved"
-          >
-            <Table
-              columns={commonColumns}
-              dataSource={getFilteredInvoices('supplier', 'approved')}
-              loading={loading}
-              rowKey="key"
-              pagination={{ pageSize: 10 }}
-              scroll={{ x: 1200 }}
-              size="small"
-            />
-          </TabPane>
-          
-          <TabPane 
-            tab={`Supplier Rejected (${stats.supplier.rejected})`} 
-            key="supplier-rejected"
-          >
-            <Table
-              columns={commonColumns}
-              dataSource={getFilteredInvoices('supplier', 'rejected')}
-              loading={loading}
-              rowKey="key"
-              pagination={{ pageSize: 10 }}
-              scroll={{ x: 1200 }}
-              size="small"
-            />
-          </TabPane>
-        </Tabs>
-      </Card>
-
-      {/* Approval Modal with Conditional Signing Workflow */}
-      <Modal
-        title={
-          <Space>
-            <AuditOutlined />
-            {selectedInvoice?.invoiceType === 'supplier' ? 'Sign & Approve Invoice' : 'Invoice Approval Decision'}
-          </Space>
-        }
-        open={approvalModalVisible}
-        onCancel={() => {
-          setApprovalModalVisible(false);
-          setSelectedInvoice(null);
-          form.resetFields();
-          resetSigningWorkflow();
-        }}
-        footer={null}
-        width={selectedInvoice?.invoiceType === 'supplier' ? 800 : 700}
-        maskClosable={false}
-      >
-        {selectedInvoice && (
-          <div>
-            {selectedInvoice.invoiceType === 'supplier' ? (
-              // Supplier Invoice Signing Workflow
-              <>
-                <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f0f8ff' }}>
-                  <Descriptions size="small" column={2}>
-                    <Descriptions.Item label="Invoice">{selectedInvoice.invoiceNumber}</Descriptions.Item>
-                    <Descriptions.Item label="PO">{selectedInvoice.poNumber}</Descriptions.Item>
-                    <Descriptions.Item label="Supplier">{selectedInvoice.supplierDetails?.companyName}</Descriptions.Item>
-                    <Descriptions.Item label="Amount">
-                      {selectedInvoice.currency} {selectedInvoice.invoiceAmount?.toLocaleString()}
-                    </Descriptions.Item>
-                  </Descriptions>
-                </Card>
-
-                <Alert
-                  message="Signing Workflow Required"
-                  description="You must download, sign, and upload the document before approving this supplier invoice."
-                  type="warning"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                />
-
-                <Steps current={currentStep} style={{ marginBottom: 24 }}>
-                  <Step title="Download" icon={<DownloadOutlined />} />
-                  <Step title="Sign" icon={<FileTextOutlined />} />
-                  <Step title="Upload" icon={<UploadOutlined />} />
-                  <Step title="Approve" icon={<SendOutlined />} />
-                </Steps>
-
-                <Divider />
-
-                {/* Step 1: Download */}
-                <Card 
-                  size="small" 
-                  style={{ 
-                    marginBottom: 16,
-                    backgroundColor: currentStep === 0 ? '#fff7e6' : '#f5f5f5',
-                    borderColor: currentStep === 0 ? '#faad14' : '#d9d9d9'
-                  }}
-                >
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <Text strong>Step 1: Download Invoice</Text>
-                    <Button
-                      type={currentStep === 0 ? 'primary' : 'default'}
-                      icon={<DownloadOutlined />}
-                      loading={downloadingInvoice}
-                      onClick={handleDownloadInvoice}
-                      disabled={documentDownloaded}
-                      block
-                    >
-                      {documentDownloaded ? 'Downloaded ✓' : 'Download Invoice'}
-                    </Button>
-                  </Space>
-                </Card>
-
-                {/* Step 2: Upload Signed */}
-                <Card 
-                  size="small" 
-                  style={{ 
-                    marginBottom: 16,
-                    backgroundColor: currentStep === 1 ? '#fff7e6' : '#f5f5f5',
-                    borderColor: currentStep === 1 ? '#faad14' : '#d9d9d9'
-                  }}
-                >
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <Text strong>Step 2: Upload Signed Document {!signedDocumentFile && <Text type="danger">*</Text>}</Text>
-                    <Dragger
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      maxCount={1}
-                      beforeUpload={(file) => {
-                        handleFileUpload({ file });
-                        return false;
-                      }}
-                      onRemove={() => {
-                        setSignedDocumentFile(null);
-                        setCurrentStep(1);
-                      }}
-                      disabled={!documentDownloaded}
-                      fileList={signedDocumentFile ? [{
-                        uid: '-1',
-                        name: signedDocumentFile.name,
-                        status: 'done',
-                      }] : []}
-                    >
-                      <p className="ant-upload-drag-icon">
-                        <InboxOutlined />
-                      </p>
-                      <p className="ant-upload-text">Upload signed document</p>
-                      <p className="ant-upload-hint">PDF, JPG, PNG (Max 10MB)</p>
-                    </Dragger>
-                  </Space>
-                </Card>
-
-                {/* Step 3: Decision Form */}
-                <Form
-                  form={form}
-                  layout="vertical"
-                  onFinish={handleApprovalDecision}
-                >
-                  <Form.Item
-                    name="decision"
-                    label="Your Decision"
-                    rules={[{ required: true, message: 'Please make a decision' }]}
-                  >
-                    <Radio.Group disabled={!signedDocumentFile}>
-                      <Radio.Button value="approved" style={{ color: '#52c41a' }}>
-                        <CheckCircleOutlined /> Approve
-                      </Radio.Button>
-                      <Radio.Button value="rejected" style={{ color: '#f5222d' }}>
-                        <CloseCircleOutlined /> Reject
-                      </Radio.Button>
-                    </Radio.Group>
-                  </Form.Item>
-
-                  <Form.Item
-                    name="comments"
-                    label="Comments"
-                    rules={[{ required: true, message: 'Comments are required' }]}
-                  >
-                    <TextArea 
-                      rows={4} 
-                      placeholder="Explain your decision..."
-                      maxLength={500}
-                      showCount
-                    />
-                  </Form.Item>
-
-                  <Form.Item>
-                    <Space>
-                      <Button onClick={() => {
-                        setApprovalModalVisible(false);
-                        setSelectedInvoice(null);
-                        form.resetFields();
-                        resetSigningWorkflow();
-                      }}>
-                        Cancel
-                      </Button>
-                      <Button 
-                        type="primary" 
-                        htmlType="submit"
-                        loading={loading}
-                        disabled={!signedDocumentFile}
-                      >
-                        Submit Decision
-                      </Button>
-                    </Space>
-                  </Form.Item>
-                </Form>
-              </>
-            ) : (
-              // Employee Invoice Simple Approval
-              <>
-                <Alert
-                  message="Review Required"
-                  description="Please review and make a decision on this employee invoice."
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: '16px' }}
-                />
-
-                {selectedInvoice.poBalance && (
-                  <Alert
-                    type={selectedInvoice.poBalance.invoicingStatus === 'fully_invoiced' ? 'success' : 'warning'}
-                    showIcon
-                    style={{ marginBottom: '16px' }}
-                    message={
-                      selectedInvoice.poBalance.invoicingStatus === 'fully_invoiced'
-                        ? `This is the final invoice against PO ${selectedInvoice.poBalance.poNumber}`
-                        : `This is a PARTIAL invoice against PO ${selectedInvoice.poBalance.poNumber} — not its full value`
-                    }
-                    description={
-                      <span>
-                        PO Total: <Text strong>{(selectedInvoice.poBalance.poTotal || 0).toLocaleString()} XAF</Text>
-                        {'  •  '}
-                        Invoiced to date (incl. this one): <Text strong>{(selectedInvoice.poBalance.invoicedSoFar || 0).toLocaleString()} XAF</Text>
-                        {'  •  '}
-                        Remaining after this: <Text strong>{(selectedInvoice.poBalance.remaining || 0).toLocaleString()} XAF</Text>
-                      </span>
-                    }
-                  />
-                )}
-
-                <Descriptions bordered column={2} size="small" style={{ marginBottom: '20px' }}>
-                  <Descriptions.Item label="PO Number">
-                    <Text code>{selectedInvoice.poNumber}</Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Invoice Number">
-                    {selectedInvoice.invoiceNumber}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Amount">
-                    <Text strong>
-                      {selectedInvoice.currency || 'XAF'} {selectedInvoice.invoiceAmount?.toLocaleString()}
-                    </Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Employee">
-                    {selectedInvoice.employeeDetails?.name || selectedInvoice.employee?.fullName}
-                  </Descriptions.Item>
-                </Descriptions>
-
-                <Form
-                  form={form}
-                  layout="vertical"
-                  onFinish={handleApprovalDecision}
-                >
-                  <Form.Item
-                    name="decision"
-                    label="Your Decision"
-                    rules={[{ required: true, message: 'Please make a decision' }]}
-                  >
-                    <Radio.Group>
-                      <Radio.Button value="approved" style={{ color: '#52c41a' }}>
-                        <CheckCircleOutlined /> Approve Invoice
-                      </Radio.Button>
-                      <Radio.Button value="rejected" style={{ color: '#f5222d' }}>
-                        <CloseCircleOutlined /> Reject Invoice
-                      </Radio.Button>
-                    </Radio.Group>
-                  </Form.Item>
-
-                  <Form.Item
-                    name="comments"
-                    label="Comments"
-                    rules={[{ required: true, message: 'Please provide comments' }]}>
-                    <TextArea 
-                      rows={4} 
-                      placeholder="Explain your decision (required for audit trail)..."
-                      showCount
-                      maxLength={500}
-                    />
-                  </Form.Item>
-
-                  <Form.Item>
-                    <Space>
-                      <Button onClick={() => {
-                        setApprovalModalVisible(false);
-                        setSelectedInvoice(null);
-                        form.resetFields();
-                      }}>
-                        Cancel
-                      </Button>
-                      <Button 
-                        type="primary" 
-                        htmlType="submit"
-                        loading={loading}
-                      >
-                        Submit Decision
-                      </Button>
-                    </Space>
-                  </Form.Item>
-                </Form>
-              </>
-            )}
-          </div>
-        )}
-      </Modal>
-
-      {/* Details Modal */}
-      <Modal
-        title={
-          <Space>
-            <FileTextOutlined />
-            Invoice Details & Approval History
-          </Space>
-        }
-        open={detailsModalVisible}
-        onCancel={() => {
-          setDetailsModalVisible(false);
-          setSelectedInvoice(null);
-        }}
-        footer={null}
-        width={900}
-      >
-        {selectedInvoice && (
-          <div>
+  const renderInvoiceDetails = () => (
+    <div>
             <Descriptions bordered column={2} size="small" style={{ marginBottom: '20px' }}>
               <Descriptions.Item label="Type" span={2}>
                 <Tag color={selectedInvoice.invoiceType === 'supplier' ? 'green' : 'blue'}>
@@ -1213,10 +542,10 @@ const handleDownloadInvoice = async () => {
               {selectedInvoice.invoiceType === 'supplier' ? (
                 <>
                   <Descriptions.Item label="Supplier Company" span={2}>
-                    {selectedInvoice.supplierDetails?.companyName}
+                    {selectedInvoice.supplierDetails?.companyName || selectedInvoice.supplier?.supplierDetails?.companyName}
                   </Descriptions.Item>
                   <Descriptions.Item label="Contact">
-                    {selectedInvoice.supplierDetails?.contactName}
+                    {selectedInvoice.supplierDetails?.contactName || selectedInvoice.supplier?.supplierDetails?.contactName}
                   </Descriptions.Item>
                   <Descriptions.Item label="Service Category">
                     <Tag color="purple">{selectedInvoice.serviceCategory}</Tag>
@@ -1363,6 +692,680 @@ const handleDownloadInvoice = async () => {
                     );
                   })}
                 </Timeline>
+              </>
+            )}
+    </div>
+  );
+
+  const getStatusTag = (status, invoiceType) => {
+    const statusMap = {
+      'pending_supervisor_approval': { color: 'orange', text: 'Pending Your Approval', icon: <ClockCircleOutlined /> },
+      'pending_department_approval': { color: 'orange', text: 'Pending Approval', icon: <ClockCircleOutlined /> },
+      'pending_department_head_approval': { color: 'orange', text: 'Pending Your Approval', icon: <ClockCircleOutlined /> },
+      'pending_head_of_business_approval': { color: 'orange', text: 'Pending Your Approval', icon: <ClockCircleOutlined /> },
+      'pending_finance_approval': { color: 'blue', text: 'Pending Finance', icon: <ClockCircleOutlined /> },
+      'pending_finance_assignment': { color: 'blue', text: 'Pending Finance', icon: <ClockCircleOutlined /> },
+      'pending_ceo_approval': { color: 'purple', text: 'Pending CEO', icon: <ClockCircleOutlined /> },
+      'approved': { color: 'green', text: 'Approved', icon: <CheckCircleOutlined /> },
+      'rejected': { color: 'red', text: 'Rejected', icon: <CloseCircleOutlined /> },
+      'processed': { color: 'purple', text: 'Processed', icon: <CheckCircleOutlined /> },
+      'paid': { color: 'cyan', text: 'Paid', icon: <DollarOutlined /> }
+    };
+
+    const config = statusMap[status] || { color: 'default', text: status, icon: null };
+    return <Tag color={config.color} icon={config.icon}>{config.text}</Tag>;
+  };
+
+  const getFilteredInvoices = (type, status) => {
+    const source = type === 'employee' ? invoices : supplierInvoices;
+    
+    console.log(`\n=== Filtering ${type} invoices for ${status} ===`);
+    console.log(`Source length: ${source.length}`);
+    console.log(`User email: ${user?.email}`);
+    
+    const filtered = source.filter(invoice => {
+      const userCanApprove = canUserApprove(invoice);
+      
+      if (source.length > 0 && invoice === source[0]) {
+        console.log('First invoice details:', {
+          invoiceNumber: invoice.invoiceNumber,
+          status: invoice.approvalStatus,
+          currentLevel: invoice.currentApprovalLevel,
+          userCanApprove,
+          approvalChain: invoice.approvalChain?.map(s => ({
+            level: s.level,
+            email: s.approver?.email,
+            status: s.status
+          }))
+        });
+      }
+      
+      switch (status) {
+        case 'pending':
+          if (type === 'employee') {
+            return invoice.approvalStatus === 'pending_supervisor_approval';
+          } else {
+            // For supplier invoices: 
+            // 1. Status must include "pending"
+            // 2. Must NOT be supply chain or finance assignment stages
+            // 3. User must be the current approver
+            const isPending = invoice.approvalStatus && (
+              invoice.approvalStatus.includes('pending') &&
+              !invoice.approvalStatus.includes('supply_chain_assignment') &&
+              !invoice.approvalStatus.includes('finance_assignment')
+            );
+            
+            const result = isPending && userCanApprove;
+            
+            if (invoice === source[0]) {
+              console.log('First invoice filter result:', {
+                isPending,
+                userCanApprove,
+                finalResult: result
+              });
+            }
+            
+            return result;
+          }
+        case 'approved':
+          return invoice.myAction === 'approved' || ['approved', 'processed', 'paid'].includes(invoice.approvalStatus);
+        case 'rejected':
+          return invoice.myAction === 'rejected' || invoice.approvalStatus === 'rejected';
+        default:
+          return true;
+      }
+    });
+    
+    console.log(`Filtered result length: ${filtered.length}`);
+    console.log('=== End filtering ===\n');
+    
+    return filtered;
+  };
+
+  const commonColumns = [
+    {
+      title: 'Type',
+      dataIndex: 'invoiceType',
+      key: 'type',
+      width: 80,
+      render: (type) => (
+        <Tag color={type === 'supplier' ? 'green' : 'blue'} icon={type === 'supplier' ? <ShopOutlined /> : <UserOutlined />}>
+          {type === 'supplier' ? 'Supplier' : 'Employee'}
+        </Tag>
+      )
+    },
+    {
+      title: 'PO Number',
+      dataIndex: 'poNumber',
+      key: 'poNumber',
+      render: (text) => <Text code>{text}</Text>,
+      width: 150
+    },
+    {
+      title: 'Invoice Number',
+      dataIndex: 'invoiceNumber',
+      key: 'invoiceNumber',
+      width: 140
+    },
+    {
+      title: 'Entity/Employee',
+      key: 'entity',
+      render: (_, record) => (
+        <div>
+          <Text strong>
+            {record.invoiceType === 'supplier' 
+              ? (record.supplierDetails?.companyName || record.supplier?.supplierDetails?.companyName || record.supplierName || 'N/A')
+              : record.employeeDetails?.name || record.employee?.fullName || 'N/A'
+            }
+          </Text>
+          <br />
+          <Text type="secondary" style={{ fontSize: '12px' }}>
+            {record.invoiceType === 'supplier'
+              ? (record.supplierDetails?.contactName || record.supplier?.supplierDetails?.contactName || record.supplier?.email || '')
+              : record.employeeDetails?.position || 'N/A'
+            }
+          </Text>
+        </div>
+      ),
+      width: 200
+    },
+    {
+      title: 'Amount',
+      dataIndex: 'invoiceAmount',
+      key: 'amount',
+      render: (amount, record) => (
+        <div>
+          <Text strong>{record.currency || 'XAF'} {amount ? amount.toLocaleString() : '0'}</Text>
+          {record.poBalance && record.poBalance.invoicingStatus === 'partially_invoiced' && (
+            <div>
+              <Tag color="orange" style={{ marginTop: 4 }}>
+                Partial — {record.poBalance.remaining?.toLocaleString()} left on PO
+              </Tag>
+            </div>
+          )}
+        </div>
+      ),
+      width: 150
+    },
+    {
+      title: 'Status',
+      key: 'status',
+      render: (_, record) => (
+        <div>
+          {getStatusTag(record.approvalStatus, record.invoiceType)}
+          {canUserApprove(record) && (
+            <div style={{ marginTop: 4 }}>
+              <Tag color="gold" size="small">Your Turn</Tag>
+            </div>
+          )}
+        </div>
+      ),
+      width: 140
+    },
+    {
+      title: 'Upload Date',
+      key: 'uploadDate',
+      render: (_, record) => (
+        <div>
+          {record.uploadedDate 
+            ? new Date(record.uploadedDate).toLocaleDateString('en-GB')
+            : record.createdAt 
+            ? new Date(record.createdAt).toLocaleDateString('en-GB')
+            : 'N/A'
+          }
+        </div>
+      ),
+      width: 120
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, record) => (
+        <Space size="small">
+          <Button
+            size="small"
+            type={canUserApprove(record) ? 'primary' : 'default'}
+            icon={canUserApprove(record) ? undefined : <EyeOutlined />}
+            onClick={() => handleOpenReview(record)}
+          >
+            Review
+          </Button>
+        </Space>
+      ),
+      width: 140,
+      fixed: 'right'
+    }
+  ];
+
+  if (loading && !invoices.length && !supplierInvoices.length) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '24px' }}>
+      <Card>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+          <Title level={2} style={{ margin: 0 }}>
+            <AuditOutlined /> Invoice Approvals Dashboard
+          </Title>
+          <Space>
+            <Button 
+              icon={<ReloadOutlined />} 
+              onClick={fetchPendingApprovals}
+              loading={loading}
+            >
+              Refresh
+            </Button>
+          </Space>
+        </div>
+
+        {/* Stats Cards */}
+        <Row gutter={16} style={{ marginBottom: '24px' }}>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="Supplier Pending"
+                value={stats.supplier.pending}
+                prefix={<ShopOutlined />}
+                valueStyle={{ color: '#faad14' }}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="Employee Pending"
+                value={stats.employee.pending}
+                prefix={<UserOutlined />}
+                valueStyle={{ color: '#faad14' }}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="Total Approved"
+                value={stats.employee.approved + stats.supplier.approved}
+                prefix={<CheckCircleOutlined />}
+                valueStyle={{ color: '#52c41a' }}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="Total Rejected"
+                value={stats.employee.rejected + stats.supplier.rejected}
+                prefix={<CloseCircleOutlined />}
+                valueStyle={{ color: '#f5222d' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+
+        {(stats.employee.pending > 0 || stats.supplier.pending > 0) && (
+          <Alert
+            message={`${stats.employee.pending + stats.supplier.pending} invoice(s) require your approval`}
+            description={
+              <Space direction="vertical">
+                {stats.employee.pending > 0 && <Text>• {stats.employee.pending} employee invoice(s)</Text>}
+                {stats.supplier.pending > 0 && <Text>• {stats.supplier.pending} supplier invoice(s) (require document signing)</Text>}
+              </Space>
+            }
+            type="warning"
+            showIcon
+            style={{ marginBottom: '16px' }}
+          />
+        )}
+
+        <Tabs activeKey={activeTab} onChange={setActiveTab}>
+          {/* Supplier Invoices Tabs */}
+          <TabPane 
+            tab={`Supplier Pending (${stats.supplier.pending})`} 
+            key="supplier-pending"
+          >
+            <Alert
+              message="Document Signing Required"
+              description="Supplier invoices require you to download, sign manually, and upload the signed document before approval."
+              type="info"
+              showIcon
+              icon={<FileTextOutlined />}
+              style={{ marginBottom: '16px' }}
+              closable
+            />
+            <Table
+              columns={commonColumns}
+              dataSource={getFilteredInvoices('supplier', 'pending')}
+              loading={loading}
+              rowKey="key"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 1200 }}
+              size="small"
+            />
+          </TabPane>
+          
+          <TabPane 
+            tab={`Supplier Approved (${stats.supplier.approved})`} 
+            key="supplier-approved"
+          >
+            <Table
+              columns={commonColumns}
+              dataSource={getFilteredInvoices('supplier', 'approved')}
+              loading={loading}
+              rowKey="key"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 1200 }}
+              size="small"
+            />
+          </TabPane>
+          
+          <TabPane 
+            tab={`Supplier Rejected (${stats.supplier.rejected})`} 
+            key="supplier-rejected"
+          >
+            <Table
+              columns={commonColumns}
+              dataSource={getFilteredInvoices('supplier', 'rejected')}
+              loading={loading}
+              rowKey="key"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 1200 }}
+              size="small"
+            />
+          </TabPane>
+
+          {/* Employee Invoices Tabs */}
+          <TabPane 
+            tab={`Employee Pending (${stats.employee.pending})`} 
+            key="employee-pending"
+          >
+            <Table
+              columns={commonColumns}
+              dataSource={getFilteredInvoices('employee', 'pending')}
+              loading={loading}
+              rowKey="key"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 1200 }}
+              size="small"
+            />
+          </TabPane>
+          
+          <TabPane 
+            tab={`Employee Approved (${stats.employee.approved})`} 
+            key="employee-approved"
+          >
+            <Table
+              columns={commonColumns}
+              dataSource={getFilteredInvoices('employee', 'approved')}
+              loading={loading}
+              rowKey="key"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 1200 }}
+              size="small"
+            />
+          </TabPane>
+          
+          <TabPane 
+            tab={`Employee Rejected (${stats.employee.rejected})`} 
+            key="employee-rejected"
+          >
+            <Table
+              columns={commonColumns}
+              dataSource={getFilteredInvoices('employee', 'rejected')}
+              loading={loading}
+              rowKey="key"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 1200 }}
+              size="small"
+            />
+          </TabPane>
+        </Tabs>
+      </Card>
+
+      {/* Approval Modal with Conditional Signing Workflow */}
+      <Modal
+        title={
+          <Space>
+            <AuditOutlined />
+            {!reviewCanApprove ? 'Invoice Details & Approval History' : selectedInvoice?.invoiceType === 'supplier' ? 'Review & Approve Invoice' : 'Review & Approve Invoice'}
+          </Space>
+        }
+        open={approvalModalVisible}
+        onCancel={() => {
+          setApprovalModalVisible(false);
+          setSelectedInvoice(null);
+          form.resetFields();
+          resetSigningWorkflow();
+        }}
+        footer={null}
+        width={selectedInvoice?.invoiceType === 'supplier' ? 'min(1200px, 96vw)' : 700}
+        style={{ top: 16 }}
+        maskClosable={false}
+      >
+        {selectedInvoice && (
+          <div>
+            <Spin spinning={reviewLoading}>
+              <Collapse
+                defaultActiveKey={reviewCanApprove ? [] : ['details']}
+                style={{ marginBottom: 16 }}
+                items={[{
+                  key: 'details',
+                  label: (
+                    <Space>
+                      <FileTextOutlined />
+                      <span>Invoice details, files & approval history</span>
+                    </Space>
+                  ),
+                  children: renderInvoiceDetails()
+                }]}
+              />
+            </Spin>
+            {!reviewCanApprove ? (
+              <Alert
+                type="info"
+                showIcon
+                message="View only"
+                description="This invoice is not waiting for your approval right now."
+              />
+            ) : selectedInvoice.invoiceType === 'supplier' ? (
+              // Supplier Invoice Signing Workflow
+              <>
+                <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f0f8ff' }}>
+                  <Descriptions size="small" column={2}>
+                    <Descriptions.Item label="Invoice">{selectedInvoice.invoiceNumber}</Descriptions.Item>
+                    <Descriptions.Item label="PO">{selectedInvoice.poNumber}</Descriptions.Item>
+                    <Descriptions.Item label="Supplier">{selectedInvoice.supplierDetails?.companyName || selectedInvoice.supplier?.supplierDetails?.companyName}</Descriptions.Item>
+                    <Descriptions.Item label="Amount">
+                      {selectedInvoice.currency} {selectedInvoice.invoiceAmount?.toLocaleString()}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </Card>
+
+                <Alert
+                  message="Signing is optional"
+                  description="Preview the document, drag your saved signature where you want it, and approve. If you don't need to sign, choose 'Approve without signing' and the previous signed copy carries on to the next approver."
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+
+                <Radio.Group
+                  value={signMode}
+                  onChange={(e) => { setSignMode(e.target.value); setSignaturePlacement(null); }}
+                  style={{ marginBottom: 16 }}
+                  optionType="button"
+                  buttonStyle="solid"
+                >
+                  <Radio.Button value="onscreen">Sign on screen</Radio.Button>
+                  <Radio.Button value="upload">Upload a signed copy</Radio.Button>
+                  <Radio.Button value="none">Approve without signing</Radio.Button>
+                </Radio.Group>
+
+                {signMode === 'upload' && (
+                  <Card size="small" style={{ marginBottom: 16 }}>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Text>
+                        1. Download the latest copy, sign it, then 2. upload the signed file below
+                        (PDF, JPG or PNG, max 10MB).
+                      </Text>
+                      <Button
+                        icon={<DownloadOutlined />}
+                        loading={downloadingInvoice}
+                        onClick={handleDownloadInvoice}
+                      >
+                        Download latest copy
+                      </Button>
+                      <Dragger
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        maxCount={1}
+                        beforeUpload={() => false}
+                        onChange={handleFileUpload}
+                        onRemove={() => { setSignedDocumentFile(null); }}
+                        fileList={signedDocumentFile ? [{ uid: '-1', name: signedDocumentFile.name, status: 'done' }] : []}
+                      >
+                        <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+                        <p className="ant-upload-text">Click or drag the signed file here</p>
+                      </Dragger>
+                    </Space>
+                  </Card>
+                )}
+
+                {signMode === 'onscreen' && (
+                  <div style={{ marginBottom: 16 }}>
+                    <InlineSignaturePlacer
+                      key={selectedInvoice._id}
+                      documentUrl={`/suppliers/invoices/${selectedInvoice._id}/signing-document`}
+                      userName={user?.fullName || user?.name || ''}
+                      onChange={setSignaturePlacement}
+                    />
+                    {!signaturePlacement && (
+                      <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                        No signature placed yet: approving now will not add your signature.
+                      </Text>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 3: Decision Form */}
+                <Form
+                  form={form}
+                  layout="vertical"
+                  onFinish={handleApprovalDecision}
+                >
+                  <Form.Item
+                    name="decision"
+                    label="Your Decision"
+                    rules={[{ required: true, message: 'Please make a decision' }]}
+                  >
+                    <Radio.Group>
+                      <Radio.Button value="approved" style={{ color: '#52c41a' }}>
+                        <CheckCircleOutlined /> Approve
+                      </Radio.Button>
+                      <Radio.Button value="rejected" style={{ color: '#f5222d' }}>
+                        <CloseCircleOutlined /> Reject
+                      </Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
+
+                  <Form.Item
+                    name="comments"
+                    label="Comments"
+                    rules={[{ required: true, message: 'Comments are required' }]}
+                  >
+                    <TextArea 
+                      rows={4} 
+                      placeholder="Explain your decision..."
+                      maxLength={500}
+                      showCount
+                    />
+                  </Form.Item>
+
+                  <Form.Item>
+                    <Space>
+                      <Button onClick={() => {
+                        setApprovalModalVisible(false);
+                        setSelectedInvoice(null);
+                        form.resetFields();
+                        resetSigningWorkflow();
+                      }}>
+                        Cancel
+                      </Button>
+                      <Button 
+                        type="primary" 
+                        htmlType="submit"
+                        loading={loading}
+                      >
+                        Submit Decision
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </Form>
+              </>
+            ) : (
+              // Employee Invoice Simple Approval
+              <>
+                <Alert
+                  message="Review Required"
+                  description="Please review and make a decision on this employee invoice."
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: '16px' }}
+                />
+
+                {selectedInvoice.poBalance && (
+                  <Alert
+                    type={selectedInvoice.poBalance.invoicingStatus === 'fully_invoiced' ? 'success' : 'warning'}
+                    showIcon
+                    style={{ marginBottom: '16px' }}
+                    message={
+                      selectedInvoice.poBalance.invoicingStatus === 'fully_invoiced'
+                        ? `This is the final invoice against PO ${selectedInvoice.poBalance.poNumber}`
+                        : `This is a PARTIAL invoice against PO ${selectedInvoice.poBalance.poNumber} — not its full value`
+                    }
+                    description={
+                      <span>
+                        PO Total: <Text strong>{(selectedInvoice.poBalance.poTotal || 0).toLocaleString()} XAF</Text>
+                        {'  •  '}
+                        Invoiced to date (incl. this one): <Text strong>{(selectedInvoice.poBalance.invoicedSoFar || 0).toLocaleString()} XAF</Text>
+                        {'  •  '}
+                        Remaining after this: <Text strong>{(selectedInvoice.poBalance.remaining || 0).toLocaleString()} XAF</Text>
+                      </span>
+                    }
+                  />
+                )}
+
+                <Descriptions bordered column={2} size="small" style={{ marginBottom: '20px' }}>
+                  <Descriptions.Item label="PO Number">
+                    <Text code>{selectedInvoice.poNumber}</Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Invoice Number">
+                    {selectedInvoice.invoiceNumber}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Amount">
+                    <Text strong>
+                      {selectedInvoice.currency || 'XAF'} {selectedInvoice.invoiceAmount?.toLocaleString()}
+                    </Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Employee">
+                    {selectedInvoice.employeeDetails?.name || selectedInvoice.employee?.fullName}
+                  </Descriptions.Item>
+                </Descriptions>
+
+                <Form
+                  form={form}
+                  layout="vertical"
+                  onFinish={handleApprovalDecision}
+                >
+                  <Form.Item
+                    name="decision"
+                    label="Your Decision"
+                    rules={[{ required: true, message: 'Please make a decision' }]}
+                  >
+                    <Radio.Group>
+                      <Radio.Button value="approved" style={{ color: '#52c41a' }}>
+                        <CheckCircleOutlined /> Approve Invoice
+                      </Radio.Button>
+                      <Radio.Button value="rejected" style={{ color: '#f5222d' }}>
+                        <CloseCircleOutlined /> Reject Invoice
+                      </Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
+
+                  <Form.Item
+                    name="comments"
+                    label="Comments"
+                    rules={[{ required: true, message: 'Please provide comments' }]}>
+                    <TextArea 
+                      rows={4} 
+                      placeholder="Explain your decision (required for audit trail)..."
+                      showCount
+                      maxLength={500}
+                    />
+                  </Form.Item>
+
+                  <Form.Item>
+                    <Space>
+                      <Button onClick={() => {
+                        setApprovalModalVisible(false);
+                        setSelectedInvoice(null);
+                        form.resetFields();
+                      }}>
+                        Cancel
+                      </Button>
+                      <Button 
+                        type="primary" 
+                        htmlType="submit"
+                        loading={loading}
+                      >
+                        Submit Decision
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </Form>
               </>
             )}
           </div>

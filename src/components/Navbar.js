@@ -14,7 +14,8 @@ import {
   FundOutlined,
   PrinterOutlined,
   DashboardOutlined,
-  MoneyCollectFilled
+  MoneyCollectFilled,
+  MailOutlined
 } from '@ant-design/icons';
 
 const NavBar = () => {
@@ -56,6 +57,10 @@ const NavBar = () => {
         <Link to="/pettycash">Home</Link>
       </Menu.Item>
       
+      <Menu.Item key="messages" icon={<MailOutlined />}>
+        <Link to="/my-communications">My Messages</Link>
+      </Menu.Item>
+
       <Menu.Item key="logout" icon={<LogoutOutlined />} onClick={handleLogout} style={{ marginLeft: 'auto' }}>
         Logout
       </Menu.Item>

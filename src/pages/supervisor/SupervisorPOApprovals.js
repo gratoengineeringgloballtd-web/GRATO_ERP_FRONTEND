@@ -66,6 +66,12 @@ const SupervisorPOApprovals = () => {
   });
   const [form] = Form.useForm();
 
+  // A PO counts as approved once it has cleared the approval chain, including when it has moved on
+  // to later stages (sent, delivered, ...). Pending and rejected ones are excluded.
+  const isApprovedPO = (po) =>
+    !!po.status && po.status !== 'rejected' && po.status !== 'cancelled' && po.status !== 'draft' &&
+    !String(po.status).startsWith('pending');
+
   // Helper function to check if user can approve PO
   const canUserApprovePO = useCallback((po) => {
     if (!po.approvalChain || !user?.email) return false;
@@ -91,9 +97,7 @@ const SupervisorPOApprovals = () => {
 
         // Calculate stats
         const pending = pos.filter(po => canUserApprovePO(po)).length;
-        const approved = pos.filter(po => 
-          ['approved', 'completed'].includes(po.status)
-        ).length;
+        const approved = pos.filter(po => isApprovedPO(po)).length;
         const rejected = pos.filter(po => 
           po.status === 'rejected'
         ).length;
@@ -257,7 +261,7 @@ const SupervisorPOApprovals = () => {
       case 'pending':
         return purchaseOrders.filter(po => canUserApprovePO(po));
       case 'approved':
-        return purchaseOrders.filter(po => ['approved', 'completed'].includes(po.status));
+        return purchaseOrders.filter(po => isApprovedPO(po));
       case 'rejected':
         return purchaseOrders.filter(po => po.status === 'rejected');
       default:

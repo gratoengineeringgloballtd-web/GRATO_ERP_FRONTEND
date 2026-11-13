@@ -12,7 +12,8 @@ import {
   Space,
   Tag,
   Alert,
-  Tabs
+  Tabs,
+  Spin
 } from 'antd';
 import {
   LineChartOutlined,
@@ -26,6 +27,7 @@ import {
   CheckCircleOutlined,
   ExportOutlined
 } from '@ant-design/icons';
+import { purchaseRequisitionAPI } from '../../services/purchaseRequisitionAPI';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const { Title, Text } = Typography;
@@ -37,6 +39,7 @@ const SupplyChainAnalytics = () => {
   const [selectedPeriod, setSelectedPeriod] = useState('quarterly');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [analyticsData, setAnalyticsData] = useState({});
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
     fetchAnalyticsData();
@@ -44,64 +47,19 @@ const SupplyChainAnalytics = () => {
 
   const fetchAnalyticsData = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock analytics data
-      setAnalyticsData({
-        summary: {
-          totalRequisitions: 156,
-          totalSpend: 125000000,
-          averageProcessingTime: 5.2,
-          approvalRate: 92,
-          budgetUtilization: 78,
-          activeVendors: 45,
-          costSavings: 8500000,
-          deliveryPerformance: 94
-        },
-        trendData: [
-          { month: 'Jan', requisitions: 12, spend: 8500000, avgTime: 6.1 },
-          { month: 'Feb', requisitions: 15, spend: 9200000, avgTime: 5.8 },
-          { month: 'Mar', requisitions: 18, spend: 11000000, avgTime: 5.5 },
-          { month: 'Apr', requisitions: 14, spend: 8800000, avgTime: 5.2 },
-          { month: 'May', requisitions: 16, spend: 10500000, avgTime: 5.0 },
-          { month: 'Jun', requisitions: 13, spend: 9100000, avgTime: 4.8 },
-          { month: 'Jul', requisitions: 19, spend: 12200000, avgTime: 5.1 },
-          { month: 'Aug', requisitions: 17, spend: 11800000, avgTime: 5.3 },
-          { month: 'Sep', requisitions: 16, spend: 10900000, avgTime: 5.0 },
-          { month: 'Oct', requisitions: 20, spend: 13500000, avgTime: 4.9 },
-          { month: 'Nov', requisitions: 22, spend: 15200000, avgTime: 5.2 }
-        ],
-        categoryBreakdown: [
-          { name: 'IT Equipment', value: 35, spend: 43750000, count: 55 },
-          { name: 'Office Supplies', value: 25, spend: 31250000, count: 39 },
-          { name: 'Furniture', value: 15, spend: 18750000, count: 23 },
-          { name: 'Equipment', value: 12, spend: 15000000, count: 19 },
-          { name: 'Consumables', value: 8, spend: 10000000, count: 12 },
-          { name: 'Other', value: 5, spend: 6250000, count: 8 }
-        ],
-        vendorPerformance: [
-          { name: 'TechSolutions Cameroon', rating: 4.5, orders: 28, onTime: 95, spend: 15000000 },
-          { name: 'Office Supplies Plus', rating: 4.2, orders: 45, onTime: 90, spend: 8500000 },
-          { name: 'Industrial Solutions Ltd', rating: 3.8, orders: 12, onTime: 78, spend: 25000000 },
-          { name: 'Modern Furniture Co.', rating: 4.0, orders: 23, onTime: 87, spend: 12000000 },
-          { name: 'Tech Hardware Store', rating: 4.3, orders: 34, onTime: 92, spend: 9800000 }
-        ],
-        processingTimes: [
-          { stage: 'Submission', avgDays: 0.5, percentage: 100 },
-          { stage: 'Dept Approval', avgDays: 1.2, percentage: 95 },
-          { stage: 'Supply Chain Review', avgDays: 1.8, percentage: 88 },
-          { stage: 'Finance Approval', avgDays: 1.0, percentage: 92 },
-          { stage: 'Procurement', avgDays: 0.7, percentage: 96 }
-        ],
-        alerts: [
-          { type: 'warning', message: 'Budget utilization nearing 80%', category: 'Budget' },
-          { type: 'info', message: '5 vendors due for performance review', category: 'Vendors' },
-          { type: 'success', message: 'Processing time improved by 15% this quarter', category: 'Efficiency' }
-        ]
-      });
+      const res = await purchaseRequisitionAPI.getSupplyChainAnalytics(selectedPeriod, selectedCategory);
+      if (res?.success) {
+        setAnalyticsData(res.data);
+      } else {
+        setAnalyticsData({});
+        setLoadError(res?.message || 'Failed to load analytics');
+      }
     } catch (error) {
       console.error('Error fetching analytics:', error);
+      setAnalyticsData({});
+      setLoadError(error?.message || 'Failed to load analytics');
     } finally {
       setLoading(false);
     }
@@ -111,7 +69,21 @@ const SupplyChainAnalytics = () => {
 
   const { summary, trendData, categoryBreakdown, vendorPerformance, processingTimes, alerts } = analyticsData;
 
-  if (!summary) return <div>Loading...</div>;
+  if (!summary) {
+    return (
+      <div style={{ padding: 48, textAlign: 'center' }}>
+        {loading ? <Spin size="large" /> : (
+          <Alert
+            type="error"
+            showIcon
+            message="Could not load supply chain analytics"
+            description={loadError || 'No data returned from the server.'}
+            action={<Button size="small" onClick={fetchAnalyticsData}>Retry</Button>}
+          />
+        )}
+      </div>
+    );
+  }
 
   const vendorColumns = [
     {
@@ -124,7 +96,7 @@ const SupplyChainAnalytics = () => {
       title: 'Rating',
       dataIndex: 'rating',
       key: 'rating',
-      render: (rating) => (
+      render: (rating) => rating == null ? <Text type="secondary">Not rated</Text> : (
         <div>
           <Progress 
             percent={rating * 20} 
@@ -147,7 +119,7 @@ const SupplyChainAnalytics = () => {
       title: 'On-Time %',
       dataIndex: 'onTime',
       key: 'onTime',
-      render: (onTime) => (
+      render: (onTime) => onTime == null ? <Text type="secondary">N/A</Text> : (
         <Progress 
           percent={onTime} 
           size="small" 
@@ -210,9 +182,14 @@ const SupplyChainAnalytics = () => {
             </Select>
             <Select value={selectedCategory} onChange={setSelectedCategory} style={{ width: 150 }}>
               <Option value="all">All Categories</Option>
-              <Option value="it">IT Equipment</Option>
-              <Option value="office">Office Supplies</Option>
-              <Option value="furniture">Furniture</Option>
+              <Option value="IT Accessories">IT Accessories</Option>
+              <Option value="Hardware">Hardware</Option>
+              <Option value="Software">Software</Option>
+              <Option value="Office Supplies">Office Supplies</Option>
+              <Option value="Furniture">Furniture</Option>
+              <Option value="Equipment">Equipment</Option>
+              <Option value="Consumables">Consumables</Option>
+              <Option value="Other">Other</Option>
             </Select>
             <Button icon={<ExportOutlined />}>Export Report</Button>
           </Space>

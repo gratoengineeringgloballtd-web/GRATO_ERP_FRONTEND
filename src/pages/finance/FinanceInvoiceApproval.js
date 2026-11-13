@@ -57,6 +57,7 @@ import {
   InboxOutlined
 } from '@ant-design/icons';
 import api from '../../services/api';
+import InlineSignaturePlacer from '../../components/signing/InlineSignaturePlacer';
 import * as XLSX from 'xlsx';
 import { StatusTag } from '../config/supplierInvoiceStatus';
 import ApprovalStatusTracker from '../common/ApprovalStatusTracker';
@@ -88,6 +89,9 @@ const FinanceInvoiceApprovalPage = () => {
   const [signedDocumentFile, setSignedDocumentFile] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [downloadedInvoice, setDownloadedInvoice] = useState(false);
+  // Optional signing: 'onscreen' (drag saved signature), 'upload' (signed elsewhere) or 'none'
+  const [signMode, setSignMode] = useState('onscreen');
+  const [signaturePlacement, setSignaturePlacement] = useState(null);
   const [form] = Form.useForm();
 
   const fetchEmployeeInvoices = useCallback(async () => {
@@ -203,18 +207,78 @@ const FinanceInvoiceApprovalPage = () => {
     fetchBudgetCodes();
   }, [fetchAllInvoices, fetchAnalytics, fetchBudgetCodes]);
 
+  // Optional signing UI shared by the CEO and Finance approval views
+  const renderSigningSection = () => (
+    <>
+      <Alert
+        message="Signing is optional"
+        description="Preview the document, drag your saved signature where you want it, and approve. If you don't need to sign, choose 'Approve without signing' and the previous signed copy carries on."
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+      />
+      <Radio.Group
+        value={signMode}
+        onChange={(e) => { setSignMode(e.target.value); setSignaturePlacement(null); }}
+        style={{ marginBottom: 16 }}
+        optionType="button"
+        buttonStyle="solid"
+      >
+        <Radio.Button value="onscreen">Sign on screen</Radio.Button>
+        <Radio.Button value="upload">Upload a signed copy</Radio.Button>
+        <Radio.Button value="none">Approve without signing</Radio.Button>
+      </Radio.Group>
+
+      {signMode === 'onscreen' && selectedInvoice && (
+        <div style={{ marginBottom: 16 }}>
+          <InlineSignaturePlacer
+            key={selectedInvoice._id}
+            documentUrl={`/suppliers/invoices/${selectedInvoice._id}/signing-document`}
+            onChange={setSignaturePlacement}
+          />
+          {!signaturePlacement && (
+            <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+              No signature placed yet: approving now will not add your signature.
+            </Text>
+          )}
+        </div>
+      )}
+
+      {signMode === 'upload' && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Button icon={<DownloadOutlined />} loading={downloadingFile} onClick={handleDownloadInvoice}>
+              Download current copy
+            </Button>
+            <Upload.Dragger
+              accept=".pdf,.jpg,.jpeg,.png"
+              maxCount={1}
+              beforeUpload={(file) => { handleFileUpload({ file }); return false; }}
+              onRemove={() => setSignedDocumentFile(null)}
+              fileList={signedDocumentFile ? [{ uid: '-1', name: signedDocumentFile.name, status: 'done' }] : []}
+            >
+              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p className="ant-upload-text">Upload the signed document</p>
+              <p className="ant-upload-hint">PDF, JPG, PNG (Max 10MB)</p>
+            </Upload.Dragger>
+          </Space>
+        </Card>
+      )}
+    </>
+  );
+
   const handleFinanceApproval = async (values) => {
     const { decision, comments, budgetCode, allocationAmount, paymentMethod } = values;
 
-    if (!signedDocumentFile) {
-      message.error('Please upload a signed document');
+    if (decision === 'approved' && signMode === 'upload' && !signedDocumentFile) {
+      message.error('Choose the signed file to upload, or switch to signing on screen / approving without a signature.');
       return;
     }
 
     try {
       setLoading(true);
       
-      // Prepare form data with file upload
+      // Prepare form data (signature is optional)
       const formData = new FormData();
       formData.append('decision', decision);
       formData.append('comments', comments);
@@ -227,7 +291,15 @@ const FinanceInvoiceApprovalPage = () => {
       if (paymentMethod) {
         formData.append('paymentMethod', paymentMethod);
       }
-      formData.append('signedDocument', signedDocumentFile);
+      if (decision === 'approved') {
+        if (signMode === 'onscreen' && signaturePlacement?.placements?.length) {
+          formData.append('signaturePlacements', JSON.stringify(signaturePlacement.placements));
+          formData.append('stampName', signaturePlacement.stampName ? 'true' : 'false');
+          formData.append('stampDate', signaturePlacement.stampDate ? 'true' : 'false');
+        } else if (signMode === 'upload' && signedDocumentFile) {
+          formData.append('signedDocument', signedDocumentFile);
+        }
+      }
       
       const response = await api.put(
         `/suppliers/supervisor/invoices/${selectedInvoice._id}/decision`,
@@ -410,6 +482,8 @@ const FinanceInvoiceApprovalPage = () => {
   };
 
   const resetSigningWorkflow = () => {
+    setSignMode('onscreen');
+    setSignaturePlacement(null);
     setSignedDocumentFile(null);
     setDownloadedInvoice(false);
     setCurrentStep(0);
@@ -854,7 +928,8 @@ const FinanceInvoiceApprovalPage = () => {
     resetSigningWorkflow();
   }}
   footer={null}
-  width={800}
+  width="min(1200px, 96vw)"
+  style={{ top: 16 }}
 >
   {selectedInvoice && (
     <div>
@@ -957,67 +1032,7 @@ const FinanceInvoiceApprovalPage = () => {
             </Space>
           </Card>
 
-          {/* CEO Signing Workflow */}
-          <Steps current={currentStep} style={{ marginBottom: 24 }}>
-            <Steps.Step title="Download" icon={<DownloadOutlined />} />
-            <Steps.Step title="Sign" icon={<FileTextOutlined />} />
-            <Steps.Step title="Upload" icon={<UploadOutlined />} />
-            <Steps.Step title="Approve" icon={<SendOutlined />} />
-          </Steps>
-
-          <Divider />
-
-          {/* Download */}
-          <Card
-            size="small"
-            style={{
-              marginBottom: 16,
-              backgroundColor: currentStep === 0 ? '#fff7e6' : '#f5f5f5',
-              borderColor: currentStep === 0 ? '#faad14' : '#d9d9d9'
-            }}
-          >
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Text strong>Step 1: Download Invoice for Signing</Text>
-              <Button
-                type={currentStep === 0 ? 'primary' : 'default'}
-                icon={<DownloadOutlined />}
-                loading={downloadingFile}
-                onClick={handleDownloadInvoice}
-                disabled={downloadedInvoice}
-                block
-              >
-                {downloadedInvoice ? 'Downloaded ✓' : 'Download Invoice'}
-              </Button>
-            </Space>
-          </Card>
-
-          {/* Upload Signed */}
-          <Card
-            size="small"
-            style={{
-              marginBottom: 16,
-              backgroundColor: currentStep === 1 ? '#fff7e6' : '#f5f5f5',
-              borderColor: currentStep === 1 ? '#faad14' : '#d9d9d9'
-            }}
-          >
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Text strong>
-                Step 2: Upload Signed Document <Text type="danger">*</Text>
-              </Text>
-              <Upload.Dragger
-                accept=".pdf,.jpg,.jpeg,.png"
-                maxCount={1}
-                beforeUpload={(file) => { handleFileUpload({ file }); return false; }}
-                onRemove={() => { setSignedDocumentFile(null); setCurrentStep(1); }}
-                disabled={!downloadedInvoice}
-                fileList={signedDocumentFile ? [{ uid: '-1', name: signedDocumentFile.name, status: 'done' }] : []}
-              >
-                <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-                <p className="ant-upload-text">Upload your signed copy</p>
-                <p className="ant-upload-hint">PDF, JPG, PNG (Max 10MB)</p>
-              </Upload.Dragger>
-            </Space>
-          </Card>
+          {renderSigningSection()}
 
           {/* CEO Simple Decision Form — no budget fields */}
           <Form
@@ -1030,7 +1045,7 @@ const FinanceInvoiceApprovalPage = () => {
               label={<Text strong>Your Decision</Text>}
               rules={[{ required: true, message: 'Please make a decision' }]}
             >
-              <Radio.Group disabled={!signedDocumentFile}>
+              <Radio.Group>
                 <Radio.Button value="approved" style={{ color: '#52c41a' }}>
                   <CheckCircleOutlined /> Approve for Payment
                 </Radio.Button>
@@ -1066,7 +1081,7 @@ const FinanceInvoiceApprovalPage = () => {
                   type="primary"
                   htmlType="submit"
                   loading={loading}
-                  disabled={!signedDocumentFile || !form.getFieldValue('decision')}
+                  disabled={!form.getFieldValue('decision')}
                   icon={<CrownOutlined />}
                 >
                   Submit CEO Decision
@@ -1079,8 +1094,8 @@ const FinanceInvoiceApprovalPage = () => {
         // ── FINANCE APPROVAL VIEW ─────────────────────────────────────────
         <>
           <Alert
-            message="Final Approval Level - Document Signing Required"
-            description="As Finance Officer, you must download, sign, and upload the invoice before approving. You will also set the budget code and payment method."
+            message="Final Approval Level"
+            description="As Finance Officer you can sign the invoice on screen (optional), then set the budget code and payment method."
             type="warning"
             showIcon
             style={{ marginBottom: 16 }}
@@ -1106,66 +1121,7 @@ const FinanceInvoiceApprovalPage = () => {
             </Descriptions.Item>
           </Descriptions>
 
-          <Steps current={currentStep} style={{ marginBottom: 24 }}>
-            <Steps.Step title="Download" icon={<DownloadOutlined />} />
-            <Steps.Step title="Sign" icon={<FileTextOutlined />} />
-            <Steps.Step title="Upload" icon={<UploadOutlined />} />
-            <Steps.Step title="Approve" icon={<SendOutlined />} />
-          </Steps>
-
-          <Divider />
-
-          {/* Download */}
-          <Card
-            size="small"
-            style={{
-              marginBottom: 16,
-              backgroundColor: currentStep === 0 ? '#fff7e6' : '#f5f5f5',
-              borderColor: currentStep === 0 ? '#faad14' : '#d9d9d9'
-            }}
-          >
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Text strong>Step 1: Download Invoice</Text>
-              <Button
-                type={currentStep === 0 ? 'primary' : 'default'}
-                icon={<DownloadOutlined />}
-                loading={downloadingFile}
-                onClick={handleDownloadInvoice}
-                disabled={downloadedInvoice}
-                block
-              >
-                {downloadedInvoice ? 'Downloaded ✓' : 'Download Invoice for Signing'}
-              </Button>
-            </Space>
-          </Card>
-
-          {/* Upload Signed */}
-          <Card
-            size="small"
-            style={{
-              marginBottom: 16,
-              backgroundColor: currentStep === 1 ? '#fff7e6' : '#f5f5f5',
-              borderColor: currentStep === 1 ? '#faad14' : '#d9d9d9'
-            }}
-          >
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Text strong>
-                Step 2: Upload Signed Document <Text type="danger">*</Text>
-              </Text>
-              <Upload.Dragger
-                accept=".pdf,.jpg,.jpeg,.png"
-                maxCount={1}
-                beforeUpload={(file) => { handleFileUpload({ file }); return false; }}
-                onRemove={() => { setSignedDocumentFile(null); setCurrentStep(1); }}
-                disabled={!downloadedInvoice}
-                fileList={signedDocumentFile ? [{ uid: '-1', name: signedDocumentFile.name, status: 'done' }] : []}
-              >
-                <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-                <p className="ant-upload-text">Upload signed document</p>
-                <p className="ant-upload-hint">PDF, JPG, PNG (Max 10MB)</p>
-              </Upload.Dragger>
-            </Space>
-          </Card>
+          {renderSigningSection()}
 
           {/* Finance Decision Form with budget fields */}
           <Form
@@ -1178,7 +1134,7 @@ const FinanceInvoiceApprovalPage = () => {
               label={<Text strong>Your Decision</Text>}
               rules={[{ required: true, message: 'Please make a decision' }]}
             >
-              <Radio.Group disabled={!signedDocumentFile}>
+              <Radio.Group>
                 <Radio.Button value="approved" style={{ color: '#52c41a' }}>
                   <CheckCircleOutlined /> Approve for Payment
                 </Radio.Button>
@@ -1300,7 +1256,6 @@ const FinanceInvoiceApprovalPage = () => {
                       htmlType="submit"
                       loading={loading}
                       disabled={
-                        !signedDocumentFile ||
                         !getFieldValue('decision') ||
                         (getFieldValue('decision') === 'approved' && (
                           !getFieldValue('budgetCode') ||

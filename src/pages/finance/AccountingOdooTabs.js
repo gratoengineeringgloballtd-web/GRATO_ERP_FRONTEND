@@ -403,7 +403,7 @@ export const BudgetsTab = () => {
           <Form.Item name="startDate"  label="Start date"  rules={[{required:true}]}><Input type="date" /></Form.Item>
           <Form.Item name="endDate"    label="End date"    rules={[{required:true}]}><Input type="date" /></Form.Item>
           <Form.Item name="linesJson"  label="Budget lines JSON"
-            help='[{"accountCode":"5100","plannedAmount":500000},{"accountCode":"5200","plannedAmount":200000}]'>
+            help='[{"accountCode":"661","plannedAmount":500000},{"accountCode":"618","plannedAmount":200000}]'>
             <Input.TextArea rows={6} />
           </Form.Item>
           <Button type="primary" htmlType="submit" block>Create Budget</Button>
@@ -612,7 +612,7 @@ export const TaxGroupsTab = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm();
   const defaultTaxLines = JSON.stringify([
-    { name: 'Standard VAT', rate: 19.25, taxType: 'vat', accountCode: '2200', isInclusive: false, sequence: 10 }
+    { name: 'Standard VAT', rate: 19.25, taxType: 'vat', accountCode: '4431', isInclusive: false, sequence: 10 }
   ], null, 2);
 
   const load = useCallback(async () => {

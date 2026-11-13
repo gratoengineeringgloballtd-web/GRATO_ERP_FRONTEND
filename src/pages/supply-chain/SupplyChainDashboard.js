@@ -109,9 +109,14 @@ const SupplyChainDashboard = () => {
   const fetchBuyerTracking = async () => {
     if (buyerTracking) return; // already loaded
     setBuyerTrackingLoading(true);
-    const res = await purchaseRequisitionAPI.getBuyerAssignmentTracking();
-    if (res?.success) setBuyerTracking(res);
-    setBuyerTrackingLoading(false);
+    try {
+      const res = await purchaseRequisitionAPI.getBuyerAssignmentTracking();
+      if (res?.success) setBuyerTracking(res);
+    } catch (err) {
+      console.error('Buyer tracking load failed:', err);
+    } finally {
+      setBuyerTrackingLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -121,31 +126,38 @@ const SupplyChainDashboard = () => {
   const fetchDashboardData = async () => {
     setLoading(true);
     const errors = [];
+    // Never let one failing call (or a missing API method) leave the page spinning forever.
+    const safe = (fn, label) =>
+      Promise.resolve()
+        .then(fn)
+        .catch((err) => ({ success: false, message: err?.message || `Failed to load ${label}` }));
 
-    const [statsRes, planningRes, invoiceRes, suppliersRes] = await Promise.all([
-      purchaseRequisitionAPI.getDashboardStats(),
-      purchaseRequisitionAPI.getProcurementPlanningData(),
-      purchaseRequisitionAPI.getSupplyChainInvoiceStats(),
-      unifiedSupplierAPI.getAllSuppliers({ status: 'approved', limit: 1 }).catch((err) => ({
-        success: false,
-        message: err.message
-      }))
-    ]);
+    try {
+      const [statsRes, planningRes, invoiceRes, suppliersRes] = await Promise.all([
+        safe(() => purchaseRequisitionAPI.getDashboardStats(), 'stats'),
+        safe(() => purchaseRequisitionAPI.getProcurementPlanningData(), 'planning'),
+        safe(() => purchaseRequisitionAPI.getSupplyChainInvoiceStats(), 'invoice stats'),
+        safe(() => unifiedSupplierAPI.getAllSuppliers({ status: 'approved', limit: 1 }), 'suppliers')
+      ]);
 
-    if (statsRes?.success) setDashboardStats(statsRes.data);
-    else errors.push('requisition statistics');
+      if (statsRes?.success) setDashboardStats(statsRes.data);
+      else errors.push('requisition statistics');
 
-    if (planningRes?.success) setPlanningData(planningRes.data);
-    else errors.push('procurement planning data');
+      if (planningRes?.success) setPlanningData(planningRes.data);
+      else errors.push('procurement planning data');
 
-    if (invoiceRes?.success) setInvoiceStats(invoiceRes.data);
-    else errors.push('invoice queue statistics');
+      if (invoiceRes?.success) setInvoiceStats(invoiceRes.data);
+      else errors.push('invoice queue statistics');
 
-    if (suppliersRes?.success) setSupplierCount(suppliersRes.pagination?.total ?? null);
-    else errors.push('supplier count');
-
-    setLoadErrors(errors);
-    setLoading(false);
+      if (suppliersRes?.success) setSupplierCount(suppliersRes.pagination?.total ?? null);
+      else errors.push('supplier count');
+    } catch (err) {
+      console.error('Supply chain dashboard load failed:', err);
+      errors.push('dashboard data');
+    } finally {
+      setLoadErrors(errors);
+      setLoading(false);
+    }
   };
 
   if (loading) {

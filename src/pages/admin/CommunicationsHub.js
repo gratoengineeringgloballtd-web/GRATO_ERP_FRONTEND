@@ -43,6 +43,8 @@ const { Title, Text } = Typography;
 const CommunicationsHub = () => {
   const navigate = useNavigate();
   const { user } = useSelector((state) => state.auth);
+  // IT and HR use their own /it or /hr communications routes; admin and CEO use /admin.
+  const commBase = ['it', 'hr'].includes(user?.role) ? `/${user.role}` : '/admin';
   
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -112,7 +114,7 @@ const CommunicationsHub = () => {
       const response = await api.get(`/communications/${id}`);
       const original = response.data.data;
       
-      navigate('/admin/communications/new', {
+      navigate(`${commBase}/communications/new`, {
         state: {
           template: {
             title: `Copy of ${original.title}`,
@@ -134,7 +136,7 @@ const CommunicationsHub = () => {
       <Menu.Item
         key="view"
         icon={<EyeOutlined />}
-        onClick={() => navigate(`/admin/communications/${record._id}`)}
+        onClick={() => navigate(`${commBase}/communications/${record._id}`)}
       >
         View Details
       </Menu.Item>
@@ -143,7 +145,7 @@ const CommunicationsHub = () => {
         <Menu.Item
           key="edit"
           icon={<EditOutlined />}
-          onClick={() => navigate(`/admin/communications/${record._id}/edit`)}
+          onClick={() => navigate(`${commBase}/communications/${record._id}/edit`)}
         >
           Edit
         </Menu.Item>
@@ -153,7 +155,7 @@ const CommunicationsHub = () => {
         <Menu.Item
           key="send"
           icon={<SendOutlined />}
-          onClick={() => navigate(`/admin/communications/${record._id}/send`)}
+          onClick={() => navigate(`${commBase}/communications/${record._id}/send`)}
         >
           Send Now
         </Menu.Item>
@@ -347,7 +349,7 @@ const CommunicationsHub = () => {
                 type="primary"
                 size="large"
                 icon={<PlusOutlined />}
-                onClick={() => navigate('/admin/communications/new')}
+                onClick={() => navigate(`${commBase}/communications/new`)}
                 style={{ background: 'white', color: '#fa541c', borderColor: 'white' }}
               >
                 New Message
@@ -418,27 +420,27 @@ const CommunicationsHub = () => {
         <Space wrap size="middle">
           <Button
             icon={<HistoryOutlined />}
-            onClick={() => navigate('/admin/communications/history')}
+            onClick={() => navigate(`${commBase}/communications/history`)}
           >
             Message History
           </Button>
           <Button
             icon={<FileTextOutlined />}
-            onClick={() => navigate('/admin/communications/templates')}
+            onClick={() => navigate(`${commBase}/communications/templates`)}
           >
             Templates
           </Button>
           {user.role === 'admin' && (
             <Button
               icon={<BarChartOutlined />}
-              onClick={() => navigate('/admin/communications/analytics')}
+              onClick={() => navigate(`${commBase}/communications/analytics`)}
             >
               Analytics
             </Button>
           )}
           <Button
             icon={<ClockCircleOutlined />}
-            onClick={() => navigate('/admin/communications/scheduled')}
+            onClick={() => navigate(`${commBase}/communications/scheduled`)}
           >
             Scheduled Messages
           </Button>
@@ -463,7 +465,7 @@ const CommunicationsHub = () => {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={() => navigate('/admin/communications/new')}
+              onClick={() => navigate(`${commBase}/communications/new`)}
             >
               Create First Message
             </Button>

@@ -137,7 +137,7 @@ const isJustificationStatus = (status) => JUSTIFICATION_STATUS_SET.has(status);
 const extractJustificationLevel = (status) => JUSTIFICATION_LEVEL_MAP[status] ?? null;
 
 // Roles / emails identifying each approver type
-const FINANCE_EMAILS   = new Set(['ranibellmambo@gratoengineering.com']);
+const FINANCE_EMAILS   = new Set(['lainjo.remyhans@gratoglobal.com', 'ranibell.mambo@gratoglobal.com', 'ranibellmambo@gratoengineering.com']);
 const FINANCE_ROLES    = new Set(['Finance Officer']);
 const HOB_EMAILS       = new Set(['kelvin.eyong@gratoglobal.com']);
 const HOB_ROLES        = new Set(['Head of Business']);

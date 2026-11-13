@@ -24,7 +24,8 @@ import {
   Tooltip,
   Badge,
   DatePicker,
-  Spin
+  Spin,
+  Switch
 } from 'antd';
 import {
   DollarOutlined,
@@ -41,7 +42,9 @@ import {
   ClockCircleOutlined,
   FileTextOutlined,
   FileExcelOutlined,
-  FilePdfOutlined
+  FilePdfOutlined,
+  LockOutlined,
+  UnlockOutlined
 } from '@ant-design/icons';
 import {
   exportBudgetToExcel,
@@ -74,6 +77,10 @@ const BudgetManagementDashboard = () => {
   const [usageTrackingModalVisible, setUsageTrackingModalVisible] = useState(false);
   const [usageTrackingData, setUsageTrackingData] = useState(null);
   const [loadingUsageTracking, setLoadingUsageTracking] = useState(false);
+  const [showDisabled, setShowDisabled] = useState(false);
+  const [disableTarget, setDisableTarget] = useState(null);
+  const [disableReason, setDisableReason] = useState('');
+  const [disableLoading, setDisableLoading] = useState(false);
 
   const [revisionForm] = Form.useForm();
   const [transferForm] = Form.useForm();
@@ -81,19 +88,40 @@ const BudgetManagementDashboard = () => {
 
   useEffect(() => {
     fetchDashboard();
+  }, [showDisabled]);
+
+  useEffect(() => {
     fetchAllBudgetCodes();
   }, []);
 
   const fetchDashboard = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/budget-codes/dashboard');
+      const response = await api.get(`/budget-codes/dashboard${showDisabled ? '?includeDisabled=true' : ''}`);
       setDashboardData(response.data.data);
     } catch (error) {
       console.error('Error fetching dashboard:', error);
       message.error('Failed to load budget dashboard');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSetEnabled = async (record, enabled, reason) => {
+    try {
+      setDisableLoading(true);
+      const response = await api.patch(`/budget-codes/${record._id}/enabled`, { enabled, reason });
+      if (response.data.success) {
+        message.success(response.data.message);
+        setDisableTarget(null);
+        setDisableReason('');
+        fetchDashboard();
+        fetchAllBudgetCodes();
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Failed to update budget code');
+    } finally {
+      setDisableLoading(false);
     }
   };
 
@@ -292,8 +320,11 @@ const BudgetManagementDashboard = () => {
       render: (code, record) => (
         <div>
           <Text strong code>{code}</Text>
+          {record.active === false && <Tag color="default" style={{ marginLeft: 6 }}>Disabled</Tag>}
           <br />
-          <Text type="secondary" style={{ fontSize: '11px' }}>{record.name}</Text>
+          <Text type="secondary" style={{ fontSize: '11px' }}>
+            {record.name}{record.fiscalYear ? ` · FY ${record.fiscalYear}` : ''}
+          </Text>
         </div>
       )
     },
@@ -425,6 +456,28 @@ const BudgetManagementDashboard = () => {
               Forecast
             </Button>
           </Tooltip>
+          {record.active === false ? (
+            <Tooltip title="Make this code available for new requests again">
+              <Button
+                size="small"
+                icon={<UnlockOutlined />}
+                onClick={() => handleSetEnabled(record, true)}
+              >
+                Enable
+              </Button>
+            </Tooltip>
+          ) : (
+            <Tooltip title="Hide from new requests. History and reports are kept.">
+              <Button
+                size="small"
+                danger
+                icon={<LockOutlined />}
+                onClick={() => { setDisableTarget(record); setDisableReason(''); }}
+              >
+                Disable
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       )
     }
@@ -598,6 +651,26 @@ const BudgetManagementDashboard = () => {
         />
       )}
 
+      <Modal
+        title={disableTarget ? `Disable ${disableTarget.code}?` : 'Disable budget code'}
+        open={!!disableTarget}
+        onCancel={() => setDisableTarget(null)}
+        onOk={() => handleSetEnabled(disableTarget, false, disableReason)}
+        okText="Disable"
+        okButtonProps={{ danger: true, loading: disableLoading }}
+      >
+        <p>
+          This code will no longer appear when people choose a budget code for new requests.
+          Existing requests, allocations, reports and history are kept. You can enable it again at any time.
+        </p>
+        <Input.TextArea
+          rows={2}
+          placeholder="Reason (optional), e.g. FY2025 closed"
+          value={disableReason}
+          onChange={(e) => setDisableReason(e.target.value)}
+        />
+      </Modal>
+
       {/* Tabs */}
       <Tabs activeKey={activeTab} onChange={setActiveTab}>
         <TabPane 
@@ -611,6 +684,11 @@ const BudgetManagementDashboard = () => {
         >
           <Card title="All Budget Codes"
             extra={
+            <Space>
+              <span>
+                <Switch size="small" checked={showDisabled} onChange={setShowDisabled} />{' '}
+                <Text type="secondary">Show disabled</Text>
+              </span>
             <Button
                 type="primary"
                 size="small"
@@ -623,11 +701,14 @@ const BudgetManagementDashboard = () => {
                 >
                 Create Budget Code
             </Button>
+            </Space>
             }
           >
             <Table
               columns={columns}
-              dataSource={dashboardData.budgetCodes}
+              dataSource={showDisabled
+                ? [...dashboardData.budgetCodes, ...(dashboardData.disabledCodes || [])]
+                : dashboardData.budgetCodes}
               loading={loading}
               rowKey="_id"
               scroll={{ x: 1200 }}

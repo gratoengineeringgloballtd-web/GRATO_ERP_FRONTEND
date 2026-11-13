@@ -45,35 +45,70 @@ const CommunicationDetail = ({ readonly = false }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useSelector((state) => state.auth);
+  // IT and HR use their own /it or /hr communications routes; admin and CEO use /admin.
+  const commBase = ['it', 'hr'].includes(user?.role) ? `/${user.role}` : '/admin';
   
   const [loading, setLoading] = useState(true);
   const [communication, setCommunication] = useState(null);
   const [readStats, setReadStats] = useState(null);
   const [sendLoading, setSendLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
 
   useEffect(() => {
     fetchCommunicationDetail();
   }, [id]);
 
-  const fetchCommunicationDetail = async () => {
+  // While the server is still sending, refresh quietly every 4s until it finishes
+  useEffect(() => {
+    if (communication?.status !== 'sending') return undefined;
+    const timer = setInterval(() => fetchCommunicationDetail(true), 4000);
+    return () => clearInterval(timer);
+  }, [communication?.status]);
+
+  const fetchCommunicationDetail = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await api.get(`/communications/${id}`);
       setCommunication(response.data.data);
       setReadStats(response.data.data.readStats);
     } catch (error) {
       console.error('Error fetching communication:', error);
-      message.error('Failed to load communication details');
-      navigate(-1);
+      if (!silent) {
+        message.error('Failed to load communication details');
+        navigate(-1);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  };
+
+  const handleResendFailed = () => {
+    const failedCount = (communication.emailLog || []).filter(l => l.status === 'failed').length;
+    Modal.confirm({
+      title: 'Resend to failed recipients',
+      content: `This will retry the email for ${failedCount} recipient(s) whose delivery failed. People who already received it will not get it again.`,
+      okText: 'Resend',
+      onOk: async () => {
+        try {
+          setResendLoading(true);
+          const res = await api.post(`/communications/${id}/resend-failed`);
+          message.success(res.data?.message || 'Resending in the background');
+          setTimeout(() => fetchCommunicationDetail(true), 1500);
+        } catch (error) {
+          message.error(error.response?.data?.message || 'Failed to resend');
+        } finally {
+          setResendLoading(false);
+        }
+      }
+    });
   };
 
   const handleSendNow = () => {
     Modal.confirm({
       title: 'Send Communication Now',
-      content: `This will send the message to ${communication.recipients.totalCount} recipients. Continue?`,
+      content: communication.status === 'failed'
+        ? `This message was interrupted before it finished, so some of the ${communication.recipients.totalCount} recipients may already have received it. Sending again may deliver a duplicate to them. Continue?`
+        : `This will send the message to ${communication.recipients.totalCount} recipients. Continue?`,
       okText: 'Send Now',
       okType: 'primary',
       onOk: async () => {
@@ -152,7 +187,11 @@ const CommunicationDetail = ({ readonly = false }) => {
 
   const canEdit = communication.status !== 'sent' && !readonly;
   const canDelete = (communication.status !== 'sent' || user.role === 'admin') && !readonly;
-  const canSend = communication.status === 'draft' && !readonly;
+  const failedEmails = (communication.emailLog || []).filter(l => l.status === 'failed');
+  // A 'failed' message with no delivery log was interrupted (e.g. server restart) and can be sent again
+  const interrupted = communication.status === 'failed' && (communication.emailLog || []).length === 0;
+  const canSend = (communication.status === 'draft' || interrupted) && !readonly;
+  const canResend = !readonly && ['sent', 'failed'].includes(communication.status) && failedEmails.length > 0;
 
   const statusConfig = {
     draft: { color: 'default', icon: <EditOutlined />, text: 'Draft' },
@@ -210,6 +249,16 @@ const CommunicationDetail = ({ readonly = false }) => {
                   loading={sendLoading}
                 >
                   Send Now
+                </Button>
+              )}
+              {canResend && (
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={handleResendFailed}
+                  loading={resendLoading}
+                >
+                  Resend to failed ({failedEmails.length})
                 </Button>
               )}
               {canEdit && (
@@ -411,6 +460,32 @@ const CommunicationDetail = ({ readonly = false }) => {
               </div>
             </Space>
           </Card>
+
+          {/* Failed email deliveries */}
+          {failedEmails.length > 0 && !readonly && (
+            <Card
+              title={<><CloseCircleOutlined style={{ color: '#ff4d4f' }} /> Failed email deliveries ({failedEmails.length})</>}
+              style={{ marginBottom: '24px' }}
+            >
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="These people did not receive the email. The in-app message is still available to them under My Messages."
+              />
+              <Table
+                size="small"
+                rowKey={(r) => String(r.user || r.email)}
+                dataSource={failedEmails}
+                pagination={{ pageSize: 10, hideOnSinglePage: true }}
+                columns={[
+                  { title: 'Recipient', dataIndex: 'fullName', render: (v, r) => (<div>{v || '-'}<br /><Text type="secondary" style={{ fontSize: 12 }}>{r.email}</Text></div>) },
+                  { title: 'Reason', dataIndex: 'error', render: (v) => <Text type="danger" style={{ fontSize: 12 }}>{v || 'Unknown error'}</Text> },
+                  { title: 'Tries', dataIndex: 'attempts', width: 60 }
+                ]}
+              />
+            </Card>
+          )}
 
           {/* Delivery Statistics (for sent messages) */}
           {communication.status === 'sent' && (

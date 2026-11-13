@@ -553,7 +553,7 @@ const FinancePurchaseRequisitions = () => {
     };
 
     // ── Tab counts ──────────────────────────────────────────────────────────
-    const pendingCount = requisitions.filter(r => r.isAwaitingFinance || r.status === 'pending_finance_verification').length;
+    const pendingCount = requisitions.filter(r => r.isAwaitingFinance).length;
     const approvedCount = requisitions.filter(r => r.financeVerification?.decision === 'approved' || r.financeHasActed === true).length;
     const disbursementCount = requisitions.filter(r => r.status === 'approved' || r.status === 'partially_disbursed').length;
     const rejectedCount = requisitions.filter(r => r.financeVerification?.decision === 'rejected' || r.financeApprovalStep?.status === 'rejected').length;
@@ -564,7 +564,7 @@ const FinancePurchaseRequisitions = () => {
         if (!Array.isArray(requisitions) || requisitions.length === 0) return [];
         switch (activeTab) {
             case 'pending':
-                return requisitions.filter(r => r.isAwaitingFinance || r.status === 'pending_finance_verification');
+                return requisitions.filter(r => r.isAwaitingFinance);
             case 'approved':
                 return requisitions.filter(r =>
                     r.financeVerification?.decision === 'approved' || r.financeHasActed === true ||

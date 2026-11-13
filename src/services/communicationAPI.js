@@ -65,6 +65,14 @@ const communicationAPI = {
   },
 
   /**
+   * Re-send the email only to recipients whose delivery failed
+   * @param {string} id - Communication ID
+   */
+  resendFailed: (id) => {
+    return api.post(`/communications/${id}/resend-failed`);
+  },
+
+  /**
    * Preview recipient count
    * @param {Object} recipientCriteria - Recipient selection criteria
    */

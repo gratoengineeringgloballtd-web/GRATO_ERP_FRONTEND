@@ -65,12 +65,13 @@ const NON_EDITABLE_STATUSES = ['delivered', 'completed', 'cancelled'];
 
 // ✅ NEW: PDF download is locked until final approval (CEO if required, else last step)
 const isFullyApproved = (po) => {
+  if (po?.downloadOverride?.enabled) return true; // explicit per-PO exception (see scripts/allowPODownload.js)
   const chain = Array.isArray(po?.approvalChain) ? po.approvalChain : [];
   if (chain.length === 0) return false;
 
   const ceoStep = chain.find(s =>
     s.approver?.role === 'CEO - Final Authority' ||
-    String(s.approver?.email || '').toLowerCase() === 'tom@gratoglobal.com' // match CEO.email from ceoApprovalConfig.js
+    String(s.approver?.email || '').toLowerCase() === 'tom@gratoengineering.com' // CEO.email from ceoApprovalConfig.js
   );
 
   if (ceoStep) return ceoStep.status === 'approved';

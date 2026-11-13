@@ -39,6 +39,8 @@ const { TextArea } = Input;
 const CommunicationTemplates = () => {
   const navigate = useNavigate();
   const { user } = useSelector((state) => state.auth);
+  // IT and HR use their own /it or /hr communications routes; admin and CEO use /admin.
+  const commBase = ['it', 'hr'].includes(user?.role) ? `/${user.role}` : '/admin';
   
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState([]);
@@ -64,7 +66,7 @@ const CommunicationTemplates = () => {
   };
 
   const handleUseTemplate = (template) => {
-    const basePath = user.role === 'admin' ? '/admin' : '/hr';
+    const basePath = commBase;
     navigate(`${basePath}/communications/new`, {
       state: {
         template: {
@@ -128,7 +130,7 @@ const CommunicationTemplates = () => {
         key="view"
         icon={<EyeOutlined />}
         onClick={() => {
-          const basePath = user.role === 'admin' ? '/admin' : '/hr';
+          const basePath = commBase;
           navigate(`${basePath}/communications/${template._id}`);
         }}
       >
@@ -197,7 +199,7 @@ const CommunicationTemplates = () => {
               type="primary"
               icon={<PlusOutlined />}
               onClick={() => {
-                const basePath = user.role === 'admin' ? '/admin' : '/hr';
+                const basePath = commBase;
                 navigate(`${basePath}/communications/new`);
               }}
             >
@@ -228,7 +230,7 @@ const CommunicationTemplates = () => {
                       type="text"
                       icon={<EyeOutlined />}
                       onClick={() => {
-                        const basePath = user.role === 'admin' ? '/admin' : '/hr';
+                        const basePath = commBase;
                         navigate(`${basePath}/communications/${template._id}`);
                       }}
                     />
@@ -303,7 +305,7 @@ const CommunicationTemplates = () => {
               type="primary"
               icon={<PlusOutlined />}
               onClick={() => {
-                const basePath = user.role === 'admin' ? '/admin' : '/hr';
+                const basePath = commBase;
                 navigate(`${basePath}/communications/new`);
               }}
             >

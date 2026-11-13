@@ -56,109 +56,40 @@ const AdminAnalyticsDashboard = () => {
   const fetchAll = async (p = period) => {
     try {
       setLoading(true);
-      const [start, end] = getDateRange(p);
-      const params = { startDate: start.format('YYYY-MM-DD'), endDate: end.format('YYYY-MM-DD') };
 
-      const [
-        hrRes, cashRes, invoiceRes, prRes, incidentRes,
-        itRes, leaveRes, suppliersRes, projectsRes,
-        inventoryRes, assetRes, budgetRes, salaryRes, perfRes
-      ] = await Promise.allSettled([
-        api.get('/hr/employees/statistics'),
-        api.get('/cash-requests/dashboard-stats'),
-        api.get('/invoices/analytics/dashboard').catch(() => ({ data: {} })),
-        api.get('/purchase-requisitions/dashboard-stats'),
-        api.get('/incident-reports/dashboard-stats'),
-        api.get('/it-support/dashboard/stats'),
-        api.get('/leave/dashboard-stats').catch(() => ({ data: { pending: 0, total: 0 } })),
-        api.get('/suppliers/admin/approvals/statistics'),
-        api.get('/projects/dashboard-stats'),
-        api.get('/inventory/dashboard'),
-        api.get('/fixed-assets/dashboard'),
-        api.get('/budget-codes/stats').catch(() => ({ data: { pending: 0, total: 0 } })),
-        api.get('/salary-payments/dashboard-stats'),
-        api.get('/supplier-performance/rankings?limit=5').catch(() => ({ data: { data: { rankings: [], summary: {} } } })),
+      // Company-wide figures come from one dedicated endpoint (the per-module
+      // dashboard-stats endpoints are scoped to the logged-in user).
+      const [overviewRes, perfRes] = await Promise.allSettled([
+        api.get('/analytics-overview'),
+        api.get('/supplier-performance/rankings?limit=5')
       ]);
 
-      const get = (res, fallback = {}) =>
-        res.status === 'fulfilled' ? res.value?.data?.data || res.value?.data || fallback : fallback;
+      if (overviewRes.status !== 'fulfilled') {
+        throw overviewRes.reason;
+      }
 
-      const hr       = get(hrRes);
-      const cash     = get(cashRes);
-      const invoice  = get(invoiceRes);
-      const pr       = get(prRes);
-      const incident = get(incidentRes);
-      const it       = get(itRes, { summary: {} });
-      const leave    = get(leaveRes);
-      const suppliers= get(suppliersRes);
-      const projects = get(projectsRes);
-      const inv      = get(inventoryRes, { summary: {} });
-      const assets   = get(assetRes, { summary: {}, valuation: {} });
-      const budget   = get(budgetRes);
-      const salary   = get(salaryRes);
-      const perf     = get(perfRes, { rankings: [], summary: {} });
-
-      const invSummary   = inv.summary   || {};
-      const assetSummary = assets.summary || {};
-      const assetVal     = assets.valuation|| {};
-      const itSummary    = it.summary    || {};
+      const overview = overviewRes.value?.data?.data || {};
+      const failed = overviewRes.value?.data?.errors || [];
+      const rankings =
+        perfRes.status === 'fulfilled' ? perfRes.value?.data?.data?.rankings || [] : [];
 
       setData({
-        hr: {
-          total:      hr.totalEmployees   || 0,
-          active:     hr.activeEmployees  || 0,
-          probation:  hr.onProbation      || 0,
-          onLeave:    hr.onLeave          || 0,
-          expiring:   hr.contractsExpiring|| 0,
-        },
-        finance: {
-          cashPending:    cash.pending   || 0,
-          cashTotal:      cash.total     || 0,
-          invoicePending: invoice.pending || invoice.pendingAssignment || 0,
-          invoiceTotal:   invoice.total  || 0,
-          budgetPending:  budget.pending || 0,
-          budgetCodes:    budget.total   || 0,
-          salaryCurrentMonth: salary.currentMonth || 0,
-          salaryYTD:          salary.yearToDate   || 0,
-        },
-        procurement: {
-          prPending:        pr.pending   || 0,
-          prTotal:          pr.total     || 0,
-          suppliersApproved:suppliers.approved || 0,
-          suppliersPending: suppliers.pending  || 0,
-          suppliersTotal:   suppliers.total    || 0,
-          avgPerfScore:     perf.summary?.averageScore || 0,
-          topPerformers:    perf.rankings.filter(r => r.performanceGrade === 'A').length,
-        },
-        operations: {
-          incidentPending: incident.pending || 0,
-          incidentTotal:   incident.total   || 0,
-          itPending:       itSummary.pending || 0,
-          itTotal:         itSummary.total   || 0,
-          leavePending:    leave.pending    || 0,
-          leaveTotal:      leave.total      || 0,
-          projectsPending: projects.pending || 0,
-          projectsProgress:projects.inProgress || 0,
-          projectsComplete:projects.completed  || 0,
-          projectsTotal:   projects.total      || 0,
-        },
-        assets: {
-          inventoryItems:   invSummary.totalItems     || 0,
-          lowStock:         invSummary.lowStockItems  || 0,
-          outOfStock:       invSummary.outOfStockItems|| 0,
-          stockValue:       invSummary.totalStockValue|| 0,
-          fixedAssets:      assetSummary.totalAssets   || 0,
-          assetsInUse:      assetSummary.inUseAssets   || 0,
-          overdueInspections:assetSummary.overdueInspections || 0,
-          assetValue:       assetVal.totalCurrentValue || 0,
-        },
-        topSuppliers: perf.rankings.slice(0, 5),
+        hr: overview.hr || {},
+        finance: overview.finance || {},
+        procurement: { ...(overview.procurement || {}) },
+        operations: overview.operations || {},
+        assets: overview.assets || {},
+        topSuppliers: rankings.slice(0, 5)
       });
 
-      message.success('Analytics loaded');
+      if (failed.length) {
+        message.warning(`Some sections could not be loaded: ${failed.join(', ')}`);
+      } else {
+        message.success('Analytics loaded');
+      }
     } catch (err) {
       console.error(err);
-      message.error('Failed to load analytics');
+      message.error(err?.response?.data?.message || 'Failed to load analytics');
     } finally {
       setLoading(false);
     }
